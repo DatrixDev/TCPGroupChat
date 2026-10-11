@@ -229,8 +229,9 @@ public final class ServerFrame extends JFrame {
             usersModel.addRow(new Object[]{index++, username, "Online"});
         }
         logsModel.setRowCount(0);
-        for (String line : server.getRecentLogs().reversed()) {
-            logsModel.addRow(new Object[]{line});
+        java.util.List<String> logs = server.getRecentLogs();
+        for (int i = logs.size() - 1; i >= 0; i--) {
+            logsModel.addRow(new Object[]{logs.get(i)});
         }
     }
 
