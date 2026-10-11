@@ -7,7 +7,11 @@ import com.tcpgroupchat.common.protocol.ChatMessage;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalTime;
@@ -16,18 +20,19 @@ import java.util.Arrays;
 
 public class ChatFrame extends JFrame {
     private static final String GROUP = "study";
+
     private final String username;
     private final Socket socket;
     private final ObjectMapper mapper = new ObjectMapper();
     private BufferedReader reader;
     private BufferedWriter writer;
+
     private final JTextArea conversation = new JTextArea();
     private final JTextField input = new JTextField();
     private final JTextField recipient = new JTextField("username");
     private final DefaultListModel<String> usersModel = new DefaultListModel<>();
     private final JList<String> usersList = new JList<>(usersModel);
     private final JLabel status = new JLabel("Đang kết nối…");
-    private boolean joinedGroup;
 
     public ChatFrame(String username, Socket socket) {
         this.username = username;
@@ -38,9 +43,15 @@ public class ChatFrame extends JFrame {
         setSize(1000, 650);
         setLocationRelativeTo(null);
         buildUi();
+
         addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosed(java.awt.event.WindowEvent e) {
-                try { socket.close(); } catch (IOException ignored) {}
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent e) {
+                try {
+                    socket.close();
+                } catch (IOException ignored) {
+                    // Socket is already closed.
+                }
             }
         });
     }
@@ -87,14 +98,21 @@ public class ChatFrame extends JFrame {
         JButton unicast = new JButton("Unicast");
         JButton group = new JButton("Group");
         JButton broadcast = new JButton("Broadcast");
-        join.addActionListener(e -> { send(ChatMessage.of("JOIN_GROUP", username, null)); joinedGroup = true; });
-        leave.addActionListener(e -> { send(ChatMessage.of("LEAVE_GROUP", username, null)); joinedGroup = false; });
+
+        join.addActionListener(e -> send(new ChatMessage("JOIN_GROUP", username, null, GROUP, null)));
+        leave.addActionListener(e -> send(new ChatMessage("LEAVE_GROUP", username, null, GROUP, null)));
         unicast.addActionListener(e -> sendText("UNICAST"));
         group.addActionListener(e -> sendText("GROUP_MESSAGE"));
         broadcast.addActionListener(e -> sendText("BROADCAST"));
-        modes.add(join); modes.add(leave);
-        modes.add(new JLabel("Gửi riêng tới:")); recipient.setColumns(10); modes.add(recipient);
-        modes.add(unicast); modes.add(group); modes.add(broadcast);
+
+        modes.add(join);
+        modes.add(leave);
+        modes.add(new JLabel("Gửi riêng tới:"));
+        recipient.setColumns(10);
+        modes.add(recipient);
+        modes.add(unicast);
+        modes.add(group);
+        modes.add(broadcast);
         bottom.add(modes, BorderLayout.NORTH);
 
         JPanel compose = new JPanel(new BorderLayout(8, 0));
@@ -110,37 +128,53 @@ public class ChatFrame extends JFrame {
 
     public void connect() {
         try {
-            reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+            reader = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            writer = new BufferedWriter(
+                    new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+
             send(ChatMessage.of("LOGIN", username, null));
             Thread receiver = new Thread(this::readLoop, "chat-receiver-" + username);
             receiver.setDaemon(true);
             receiver.start();
         } catch (IOException ex) {
+            status.setText("Không thể kết nối");
             append("Không thể khởi tạo kết nối: " + ex.getMessage());
+            closeConnection();
         }
     }
 
     private void sendText(String type) {
         String text = input.getText().trim();
         if (text.isEmpty()) return;
+
         ChatMessage message = ChatMessage.of(type, username, text);
-        if ("UNICAST".equals(type)) message.setRecipient(recipient.getText().trim());
-        if ("GROUP_MESSAGE".equals(type)) message.setGroup(GROUP);
+        if ("UNICAST".equals(type)) {
+            message.setRecipient(recipient.getText().trim());
+        } else if ("GROUP_MESSAGE".equals(type)) {
+            message.setGroup(GROUP);
+        }
+
         send(message);
         input.setText("");
+        input.requestFocusInWindow();
     }
 
     private void send(ChatMessage message) {
         try {
             synchronized (this) {
-                if (writer == null) return;
+                if (writer == null || socket.isClosed()) {
+                    append("Chưa có kết nối tới server.");
+                    return;
+                }
                 writer.write(mapper.writeValueAsString(message));
                 writer.newLine();
                 writer.flush();
             }
         } catch (IOException ex) {
             append("Lỗi gửi tin: " + ex.getMessage());
+            status.setText("Đã mất kết nối");
+            closeConnection();
         }
     }
 
@@ -152,31 +186,61 @@ public class ChatFrame extends JFrame {
                 SwingUtilities.invokeLater(() -> handleMessage(message));
             }
         } catch (IOException ex) {
-            SwingUtilities.invokeLater(() -> status.setText("Đã mất kết nối"));
+            SwingUtilities.invokeLater(() -> {
+                status.setText("Đã mất kết nối");
+                append("Kết nối tới server đã đóng.");
+            });
+        } finally {
+            closeConnection();
         }
     }
 
     private void handleMessage(ChatMessage message) {
+        if (message == null || message.getType() == null) return;
+
         switch (message.getType()) {
             case "USER_LIST" -> {
                 usersModel.clear();
                 if (message.getContent() != null && !message.getContent().isBlank()) {
                     Arrays.stream(message.getContent().split(","))
-                            .filter(name -> !name.equals(username)).forEach(usersModel::addElement);
+                            .filter(name -> !name.equals(username))
+                            .forEach(usersModel::addElement);
                 }
             }
-            case "LOGIN_OK" -> { status.setText("Online: " + username); append(message.getContent()); }
+            case "LOGIN_OK" -> {
+                status.setText("Online: " + username);
+                append(message.getContent());
+            }
             case "SYSTEM", "ERROR" -> append("[" + message.getType() + "] " + message.getContent());
-            case "UNICAST" -> append("[Riêng từ " + message.getSender() + "] " + message.getContent());
-            case "GROUP_MESSAGE" -> append("[Nhóm #" + message.getGroup() + "] " + message.getSender() + ": " + message.getContent());
+            case "UNICAST" -> {
+                if (username.equals(message.getSender())) {
+                    append("[Riêng tới " + message.getRecipient() + "] " + message.getContent());
+                } else {
+                    append("[Riêng từ " + message.getSender() + "] " + message.getContent());
+                }
+            }
+            case "GROUP_MESSAGE" -> append("[Nhóm #" + message.getGroup() + "] "
+                    + message.getSender() + ": " + message.getContent());
             case "BROADCAST" -> append("[Broadcast] " + message.getSender() + ": " + message.getContent());
             default -> append(message.getContent() == null ? message.getType() : message.getContent());
         }
     }
 
     private void append(String text) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> append(text));
+            return;
+        }
         String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
         conversation.append("[" + time + "] " + text + System.lineSeparator());
         conversation.setCaretPosition(conversation.getDocument().getLength());
+    }
+
+    private void closeConnection() {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+            // Socket is already closed.
+        }
     }
 }
