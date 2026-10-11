@@ -9,6 +9,7 @@
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <junit.version>5.11.4</junit.version>
     <jackson.version>2.18.2</jackson.version>
     <flatlaf.version>3.5.4</flatlaf.version>
   </properties>
@@ -17,11 +18,13 @@
       <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>
       <dependency><groupId>com.formdev</groupId><artifactId>flatlaf</artifactId><version>${flatlaf.version}</version></dependency>
       <dependency><groupId>com.formdev</groupId><artifactId>flatlaf-extras</artifactId><version>${flatlaf.version}</version></dependency>
+      <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${junit.version}</version><scope>test</scope></dependency>
     </dependencies>
   </dependencyManagement>
   <build>
     <pluginManagement><plugins>
       <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+      <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin>
       <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.0</version></plugin>
     </plugins></pluginManagement>
   </build>

@@ -1,264 +1,470 @@
 package com.tcpgroupchat.server;
 
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.table.DefaultTableModel;
+import com.tcpgroupchat.common.ui.IconManager;
+import com.tcpgroupchat.common.ui.UiStyles;
 import java.awt.*;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.regex.Pattern;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.*;
 
 public final class ServerFrame extends JFrame {
-    private static final Color NAVY = new Color(0x07, 0x1B, 0x41);
-    private static final Color PRIMARY = new Color(0x14, 0x77, 0xF8);
-    private static final Color BG = new Color(0xF5, 0xF8, 0xFC);
-    private static final Color BORDER = new Color(0xD7, 0xE1, 0xEF);
-    private static final Color MUTED = new Color(0x64, 0x74, 0x8B);
+  private final ChatServer server;
+  private final JLabel state = new JLabel("ĐÃ DỪNG"), status = new JLabel(), clock = new JLabel();
+  private final JLabel[] values = new JLabel[6];
+  private final JButton start = UiStyles.button("Khởi động", "play", true),
+      stop = UiStyles.button("Dừng Server", "square", false);
+  private final JSpinner port;
+  private final DefaultTableModel sessions =
+      model(
+          "Tài khoản",
+          "IP : Cổng client",
+          "Đăng nhập",
+          "Đăng xuất",
+          "Trạng thái",
+          "Nhóm",
+          "Mã phiên");
+  private final DefaultTableModel groups = model("Nhóm", "Thành viên", "Danh sách nhận tin");
+  private final DefaultTableModel logs = model("Thời gian", "Sự kiện", "Thông tin");
+  private final JTable sessionTable = table(sessions), logTable = table(logs);
+  private final JTextField search = new JTextField(24);
+  private final JComboBox<String> filter =
+      new JComboBox<>(
+          new String[] {
+            "Tất cả",
+            "LOGIN",
+            "LOGOUT",
+            "REGISTER",
+            "JOIN",
+            "LEAVE",
+            "UNICAST",
+            "GROUP_MESSAGE",
+            "BROADCAST",
+            "ERROR",
+            "REJECT"
+          });
+  private final TableRowSorter<DefaultTableModel> logSorter = new TableRowSorter<>(logs);
+  private boolean starting, stopping, refreshing;
+  private final Timer timer;
+  private String snapshotKey = "";
 
-    private final ChatServer server;
-    private final JLabel state = new JLabel("ĐÃ DỪNG");
-    private final JLabel onlineCount = metricValue("0");
-    private final JLabel portValue = metricValue("2006");
-    private final JLabel clock = new JLabel();
-    private final JLabel status = new JLabel("Server chưa khởi động");
-    private final JButton start = new JButton("Khởi động Server");
-    private final JButton stop = new JButton("Dừng Server");
-    private final DefaultTableModel usersModel = new DefaultTableModel(
-            new Object[]{"STT", "Tên người dùng", "Trạng thái"}, 0) {
-        @Override public boolean isCellEditable(int row, int column) { return false; }
+  public ServerFrame(ChatServer server) {
+    super("TCPGroupChat | Server Dashboard");
+    this.server = server;
+    int initialPort = 2006;
+    try {
+      initialPort =
+          Integer.parseInt(
+              System.getProperty("chat.port", System.getenv().getOrDefault("CHAT_PORT", "2006")));
+    } catch (NumberFormatException ignored) {
+    }
+    if (initialPort < 1 || initialPort > 65535) initialPort = 2006;
+    port = new JSpinner(new SpinnerNumberModel(initialPort, 1, 65535, 1));
+    port.setEditor(new JSpinner.NumberEditor(port, "0"));
+    setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+    setSize(1320, 900);
+    setMinimumSize(new Dimension(1100, 780));
+    setLocationRelativeTo(null);
+    setIconImage(IconManager.image("network", 32, 32, UiStyles.PRIMARY));
+    JPanel root = new JPanel(new BorderLayout(0, 16));
+    root.setBackground(UiStyles.BACKGROUND);
+    root.setBorder(new EmptyBorder(20, 20, 14, 20));
+    setContentPane(root);
+    root.add(header(), BorderLayout.NORTH);
+    JPanel center = new JPanel(new BorderLayout(0, 14));
+    center.setOpaque(false);
+    center.add(metrics(), BorderLayout.NORTH);
+    JTabbedPane topTabs = new JTabbedPane();
+    topTabs.addTab(
+        "Phiên đăng nhập", IconManager.load("users", 18, 18, UiStyles.PRIMARY), sessionCard());
+    JPanel groupCard = UiStyles.card(new BorderLayout());
+    groupCard.add(new JScrollPane(table(groups)));
+    topTabs.addTab(
+        "Phòng / Nhóm", IconManager.load("network", 18, 18, UiStyles.PRIMARY), groupCard);
+    JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topTabs, logCard());
+    split.setResizeWeight(.46);
+    split.setBorder(null);
+    center.add(split, BorderLayout.CENTER);
+    root.add(center, BorderLayout.CENTER);
+    JPanel bottom = new JPanel(new BorderLayout());
+    bottom.setOpaque(false);
+    status.setForeground(UiStyles.NAVY);
+    clock.setForeground(UiStyles.MUTED);
+    bottom.add(status, BorderLayout.WEST);
+    bottom.add(clock, BorderLayout.EAST);
+    root.add(bottom, BorderLayout.SOUTH);
+    start.addActionListener(e -> startServer());
+    stop.addActionListener(e -> stopServer());
+    stop.setEnabled(false);
+    timer = new Timer(700, e -> refresh());
+    timer.start();
+    refresh();
+    addWindowListener(
+        new java.awt.event.WindowAdapter() {
+          @Override
+          public void windowClosed(java.awt.event.WindowEvent e) {
+            timer.stop();
+            Thread t = new Thread(server::stop, "close-server");
+            t.setDaemon(true);
+            t.start();
+          }
+        });
+  }
+
+  private JPanel header() {
+    JPanel panel = new JPanel(new BorderLayout(0, 12));
+    panel.setOpaque(false);
+    JLabel title = UiStyles.title("TCPGroupChat Server", 29);
+    title.setIcon(IconManager.load("network", 38, 38, UiStyles.PRIMARY));
+    title.setIconTextGap(12);
+    panel.add(title, BorderLayout.WEST);
+    state.setOpaque(true);
+    state.setBorder(new EmptyBorder(9, 14, 9, 14));
+    panel.add(state, BorderLayout.EAST);
+    JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+    controls.setOpaque(false);
+    controls.add(new JLabel("TCP Client–Server    •    IP LAN: " + localIp()));
+    controls.add(new JLabel("Cổng:"));
+    port.setPreferredSize(new Dimension(90, 40));
+    controls.add(port);
+    controls.add(start);
+    controls.add(stop);
+    JButton refresh = UiStyles.button("Làm mới", "refresh-cw", false);
+    refresh.addActionListener(e -> refresh());
+    controls.add(refresh);
+    panel.add(controls, BorderLayout.SOUTH);
+    return panel;
+  }
+
+  private JPanel metrics() {
+    JPanel panel = new JPanel(new GridLayout(1, 6, 10, 0));
+    panel.setOpaque(false);
+    String[] labels = {
+      "TÀI KHOẢN", "CLIENT ONLINE", "LƯỢT JOIN HIỆN TẠI", "UNICAST", "GROUP", "BROADCAST"
     };
-    private final DefaultTableModel logsModel = new DefaultTableModel(
-            new Object[]{"Nhật ký hoạt động"}, 0) {
-        @Override public boolean isCellEditable(int row, int column) { return false; }
-    };
-
-    public ServerFrame(ChatServer server) {
-        super("TCPGroupChat | Server Dashboard");
-        this.server = server;
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setSize(1180, 780);
-        setMinimumSize(new Dimension(940, 650));
-        setLocationRelativeTo(null);
-
-        JPanel root = new JPanel(new BorderLayout(0, 16));
-        root.setBackground(BG);
-        root.setBorder(new EmptyBorder(20, 22, 0, 22));
-        setContentPane(root);
-        root.add(buildHeader(), BorderLayout.NORTH);
-        root.add(buildContent(), BorderLayout.CENTER);
-        root.add(buildStatusBar(), BorderLayout.SOUTH);
-
-        start.addActionListener(event -> startServer());
-        stop.addActionListener(event -> server.stop());
-        stop.setEnabled(false);
-
-        Timer timer = new Timer(700, event -> refreshDashboard());
-        timer.start();
-        refreshDashboard();
+    String[] icons = {"users", "monitor", "network", "user", "message-square", "ethernet-port"};
+    for (int i = 0; i < 6; i++) {
+      JPanel card = UiStyles.card(new BorderLayout(0, 8));
+      JLabel name = new JLabel(labels[i]);
+      name.setForeground(UiStyles.MUTED);
+      name.setFont(name.getFont().deriveFont(Font.BOLD, 11f));
+      card.add(name, BorderLayout.NORTH);
+      values[i] = UiStyles.title("0", 30);
+      values[i].setIcon(IconManager.load(icons[i], 28, 28, UiStyles.PRIMARY));
+      values[i].setIconTextGap(10);
+      card.add(values[i], BorderLayout.CENTER);
+      panel.add(card);
     }
+    return panel;
+  }
 
-    private JComponent buildHeader() {
-        JPanel header = new JPanel(new BorderLayout(20, 0));
-        header.setOpaque(false);
-
-        JPanel branding = new JPanel();
-        branding.setOpaque(false);
-        branding.setLayout(new BoxLayout(branding, BoxLayout.Y_AXIS));
-        JLabel title = new JLabel("TCPGroupChat");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 30));
-        title.setForeground(NAVY);
-        JLabel subtitle = new JLabel("Bảng điều khiển máy chủ • TCP Client–Server");
-        subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        subtitle.setForeground(MUTED);
-        branding.add(title);
-        branding.add(Box.createVerticalStrut(4));
-        branding.add(subtitle);
-        branding.add(Box.createVerticalStrut(10));
-        state.setOpaque(true);
-        state.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        state.setBorder(new EmptyBorder(7, 12, 7, 12));
-        styleState(false);
-        state.setAlignmentX(Component.LEFT_ALIGNMENT);
-        branding.add(state);
-        header.add(branding, BorderLayout.WEST);
-
-        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 9, 4));
-        controls.setOpaque(false);
-        controls.add(infoCard("ĐỊA CHỈ IP", localIp()));
-        controls.add(infoCard("CỔNG TCP", "2006"));
-        styleButton(start, PRIMARY, Color.WHITE);
-        styleButton(stop, new Color(0xEF, 0x33, 0x40), Color.WHITE);
-        controls.add(start);
-        controls.add(stop);
-        header.add(controls, BorderLayout.EAST);
-        return header;
-    }
-
-    private JComponent buildContent() {
-        JPanel content = new JPanel(new BorderLayout(0, 14));
-        content.setOpaque(false);
-        JPanel metrics = new JPanel(new GridLayout(1, 2, 14, 0));
-        metrics.setOpaque(false);
-        metrics.add(metricCard("CLIENT ĐANG ONLINE", onlineCount, "Số kết nối đã đăng nhập"));
-        metrics.add(metricCard("CỔNG ĐANG CẤU HÌNH", portValue, "Cổng giao tiếp TCP"));
-        content.add(metrics, BorderLayout.NORTH);
-
-        JPanel lower = new JPanel(new GridLayout(1, 2, 14, 0));
-        lower.setOpaque(false);
-        lower.add(tableCard("Người dùng đang kết nối", usersModel));
-        lower.add(tableCard("Nhật ký hoạt động", logsModel));
-        content.add(lower, BorderLayout.CENTER);
-        return content;
-    }
-
-    private JComponent tableCard(String title, DefaultTableModel model) {
-        JPanel card = new JPanel(new BorderLayout(0, 10));
-        card.setBackground(Color.WHITE);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER),
-                new EmptyBorder(14, 14, 14, 14)));
-        JLabel heading = new JLabel(title);
-        heading.setFont(new Font("Segoe UI", Font.BOLD, 17));
-        heading.setForeground(NAVY);
-        card.add(heading, BorderLayout.NORTH);
-
-        JTable table = new JTable(model);
-        table.setRowHeight(32);
-        table.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        table.setForeground(NAVY);
-        table.setGridColor(BORDER);
-        table.setSelectionBackground(new Color(0xE5, 0xF1, 0xFF));
-        table.getTableHeader().setPreferredSize(new Dimension(10, 34));
-        table.getTableHeader().setBackground(new Color(0xEA, 0xF3, 0xFE));
-        table.getTableHeader().setForeground(NAVY);
-        table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
-        card.add(new JScrollPane(table), BorderLayout.CENTER);
-        return card;
-    }
-
-    private JComponent metricCard(String heading, JLabel value, String description) {
-        JPanel card = new JPanel(new BorderLayout(12, 4));
-        card.setBackground(Color.WHITE);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER),
-                new EmptyBorder(16, 18, 16, 18)));
-        JLabel title = new JLabel(heading);
-        title.setForeground(MUTED);
-        title.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        value.setForeground(new Color(0x08, 0x47, 0xA6));
-        value.setFont(new Font("Segoe UI", Font.BOLD, 30));
-        JLabel desc = new JLabel(description);
-        desc.setForeground(MUTED);
-        desc.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        JPanel words = new JPanel();
-        words.setOpaque(false);
-        words.setLayout(new BoxLayout(words, BoxLayout.Y_AXIS));
-        words.add(title);
-        words.add(Box.createVerticalStrut(5));
-        words.add(value);
-        words.add(desc);
-        card.add(words, BorderLayout.CENTER);
-        return card;
-    }
-
-    private JComponent infoCard(String title, String value) {
-        JPanel card = new JPanel(new BorderLayout(0, 3));
-        card.setBackground(new Color(0xF0, 0xF6, 0xFE));
-        card.setBorder(new EmptyBorder(8, 11, 8, 11));
-        card.setPreferredSize(new Dimension(120, 54));
-        JLabel label = new JLabel(title);
-        label.setFont(new Font("Segoe UI", Font.PLAIN, 10));
-        label.setForeground(MUTED);
-        JLabel data = new JLabel(value);
-        data.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        data.setForeground(NAVY);
-        card.add(label, BorderLayout.NORTH);
-        card.add(data, BorderLayout.CENTER);
-        return card;
-    }
-
-    private JComponent buildStatusBar() {
-        JPanel bar = new JPanel(new BorderLayout(10, 0));
-        bar.setBackground(Color.WHITE);
-        bar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, BORDER),
-                new EmptyBorder(10, 2, 10, 2)));
-        status.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        status.setForeground(NAVY);
-        clock.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        clock.setForeground(MUTED);
-        bar.add(status, BorderLayout.WEST);
-        bar.add(clock, BorderLayout.EAST);
-        return bar;
-    }
-
-    private void startServer() {
-        start.setEnabled(false);
-        status.setText("Đang khởi động server...");
-        Thread thread = new Thread(() -> {
-            try {
-                server.start(2006);
-            } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this,
-                            "Không thể khởi động server tại cổng 2006.\n" + ex.getMessage(),
-                            "Lỗi khởi động Server", JOptionPane.ERROR_MESSAGE);
-                    status.setText("Khởi động thất bại: " + ex.getMessage());
-                    refreshDashboard();
-                });
+  private JPanel sessionCard() {
+    JPanel panel = UiStyles.card(new BorderLayout(0, 10));
+    JPanel heading = new JPanel(new BorderLayout());
+    heading.setOpaque(false);
+    heading.add(UiStyles.title("Phiên online và lịch sử đăng nhập", 17), BorderLayout.WEST);
+    JButton kick = UiStyles.button("Ngắt phiên đã chọn", "log-out", false);
+    kick.addActionListener(
+        e -> {
+          int row = sessionTable.getSelectedRow();
+          if (row < 0) return;
+          row = sessionTable.convertRowIndexToModel(row);
+          String id = (String) sessions.getValueAt(row, 6);
+          new SwingWorker<Void, Void>() {
+            protected Void doInBackground() {
+              server.disconnectSession(id);
+              return null;
             }
-        }, "tcp-server-main");
-        thread.setDaemon(true);
-        thread.start();
+
+            protected void done() {
+              refresh();
+            }
+          }.execute();
+        });
+    heading.add(kick, BorderLayout.EAST);
+    panel.add(heading, BorderLayout.NORTH);
+    sessionTable.setAutoCreateRowSorter(true);
+    sessionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+    sessionTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+    int[] widths = {100, 155, 175, 175, 85, 100, 140};
+    for (int i = 0; i < widths.length; i++) {
+      sessionTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
+      sessionTable.getColumnModel().getColumn(i).setMinWidth(widths[i]);
     }
+    sessionTable
+        .getColumnModel()
+        .getColumn(6)
+        .setCellRenderer(
+            new DefaultTableCellRenderer() {
+              @Override
+              public Component getTableCellRendererComponent(
+                  JTable table,
+                  Object value,
+                  boolean selected,
+                  boolean focus,
+                  int row,
+                  int column) {
+                JLabel label =
+                    (JLabel)
+                        super.getTableCellRendererComponent(
+                            table, value, selected, focus, row, column);
+                String id = String.valueOf(value);
+                label.setText(id.length() > 8 ? id.substring(0, 8) : id);
+                label.setToolTipText(id);
+                return label;
+              }
+            });
+    panel.add(new JScrollPane(sessionTable));
+    return panel;
+  }
 
-    private void refreshDashboard() {
-        boolean running = server.isRunning();
-        start.setEnabled(!running);
-        stop.setEnabled(running);
-        styleState(running);
-        onlineCount.setText(String.valueOf(server.getOnlineUsers().size()));
-        portValue.setText("2006");
-        status.setText(running ? "TCP Server đang lắng nghe và chờ client kết nối" : "Server chưa khởi động");
-        clock.setText("Thời gian hệ thống: " +
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")));
+  private JPanel logCard() {
+    JPanel panel = UiStyles.card(new BorderLayout(0, 10));
+    JPanel heading = new JPanel(new BorderLayout(10, 0));
+    heading.setOpaque(false);
+    heading.add(UiStyles.title("Nhật ký hoạt động", 18), BorderLayout.WEST);
+    JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+    tools.setOpaque(false);
+    search.putClientProperty("JTextField.placeholderText", "Tìm tài khoản, tin nhắn, IP…");
+    tools.add(search);
+    tools.add(filter);
+    JButton export = UiStyles.button("Xuất log", "file-text", false);
+    export.addActionListener(e -> exportLogs());
+    tools.add(export);
+    heading.add(tools, BorderLayout.EAST);
+    panel.add(heading, BorderLayout.NORTH);
+    logTable.setRowSorter(logSorter);
+    logTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+    logTable.getColumnModel().getColumn(0).setPreferredWidth(180);
+    logTable.getColumnModel().getColumn(0).setMinWidth(180);
+    logTable.getColumnModel().getColumn(1).setPreferredWidth(150);
+    logTable.getColumnModel().getColumn(1).setMinWidth(150);
+    logTable.getColumnModel().getColumn(2).setPreferredWidth(800);
+    panel.add(new JScrollPane(logTable), BorderLayout.CENTER);
+    filter.addActionListener(e -> filterLogs());
+    search
+        .getDocument()
+        .addDocumentListener(
+            new javax.swing.event.DocumentListener() {
+              public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                filterLogs();
+              }
 
-        usersModel.setRowCount(0);
-        int index = 1;
-        for (String username : server.getOnlineUsers()) {
-            usersModel.addRow(new Object[]{index++, username, "Online"});
-        }
-        logsModel.setRowCount(0);
-        java.util.List<String> logs = server.getRecentLogs();
-        for (int i = logs.size() - 1; i >= 0; i--) {
-            logsModel.addRow(new Object[]{logs.get(i)});
-        }
-    }
+              public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                filterLogs();
+              }
 
-    private void styleState(boolean running) {
-        state.setText(running ? "ĐANG HOẠT ĐỘNG" : "ĐÃ DỪNG");
-        state.setBackground(running ? new Color(0xE5, 0xF8, 0xEC) : new Color(0xFD, 0xEB, 0xED));
-        state.setForeground(running ? new Color(0x11, 0x86, 0x3C) : new Color(0xEF, 0x33, 0x40));
-    }
+              public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                filterLogs();
+              }
+            });
+    return panel;
+  }
 
-    private static JLabel metricValue(String text) {
-        return new JLabel(text);
-    }
+  private void filterLogs() {
+    java.util.List<RowFilter<DefaultTableModel, Integer>> filters = new java.util.ArrayList<>();
+    if (!search.getText().isBlank())
+      filters.add(RowFilter.regexFilter("(?i)" + Pattern.quote(search.getText())));
+    if (filter.getSelectedIndex() != 0)
+      filters.add(
+          RowFilter.regexFilter("^" + Pattern.quote((String) filter.getSelectedItem()) + "$", 1));
+    logSorter.setRowFilter(filters.isEmpty() ? null : RowFilter.andFilter(filters));
+  }
 
-    private static void styleButton(JButton button, Color background, Color foreground) {
-        button.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        button.setBackground(background);
-        button.setForeground(foreground);
-        button.setFocusPainted(false);
-        button.setBorder(new EmptyBorder(11, 15, 11, 15));
-        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-    }
+  private void startServer() {
+    if (starting || stopping || server.isRunning()) return;
+    starting = true;
+    start.setEnabled(false);
+    port.setEnabled(false);
+    status.setText("Đang khởi động…");
+    int selected = (Integer) port.getValue();
+    Thread thread =
+        new Thread(
+            () -> {
+              try {
+                server.start(selected);
+              } catch (Exception e) {
+                SwingUtilities.invokeLater(
+                    () ->
+                        JOptionPane.showMessageDialog(
+                            this,
+                            e.getMessage(),
+                            "Không thể khởi động",
+                            JOptionPane.ERROR_MESSAGE));
+              } finally {
+                SwingUtilities.invokeLater(
+                    () -> {
+                      starting = false;
+                      refresh();
+                    });
+              }
+            },
+            "tcp-accept");
+    thread.setDaemon(true);
+    thread.start();
+  }
 
-    private static String localIp() {
+  private void stopServer() {
+    stopping = true;
+    stop.setEnabled(false);
+    start.setEnabled(false);
+    new SwingWorker<Void, Void>() {
+      protected Void doInBackground() {
+        server.stop();
+        return null;
+      }
+
+      protected void done() {
+        stopping = false;
+        refresh();
+      }
+    }.execute();
+  }
+
+  private void refresh() {
+    boolean running = server.isRunning();
+    if (running) starting = false;
+    start.setEnabled(!running && !starting && !stopping);
+    stop.setEnabled(running && !stopping);
+    port.setEnabled(!running && !starting && !stopping);
+    state.setText(running ? "ĐANG HOẠT ĐỘNG" : starting ? "ĐANG KHỞI ĐỘNG" : "ĐÃ DỪNG");
+    state.setForeground(running ? UiStyles.SUCCESS : UiStyles.ERROR);
+    state.setBackground(running ? new Color(0xE5F8EC) : new Color(0xFDEBED));
+    status.setText(
+        running
+            ? "TCP Server lắng nghe cổng " + server.getPort()
+            : starting
+                ? "Đang khởi động server…"
+                : "Server đã dừng • Dữ liệu tài khoản và log được lưu");
+    clock.setText(
+        LocalDateTime.now()
+            .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")));
+    if (refreshing || !isDisplayable()) return;
+    refreshing = true;
+    new SwingWorker<Object[], Void>() {
+      protected Object[] doInBackground() {
+        return new Object[] {
+          server.getStats(), server.getSessions(), server.getGroups(), server.getLogs()
+        };
+      }
+
+      @SuppressWarnings("unchecked")
+      protected void done() {
         try {
-            return InetAddress.getLocalHost().getHostAddress();
-        } catch (Exception ex) {
-            return "127.0.0.1";
+          Object[] result = get();
+          ChatServer.Stats stats = (ChatServer.Stats) result[0];
+          long[] counts = {
+            stats.accounts(),
+            stats.online(),
+            stats.members(),
+            stats.unicast(),
+            stats.group(),
+            stats.broadcast()
+          };
+          for (int i = 0; i < 6; i++) values[i].setText(String.valueOf(counts[i]));
+          String key = result[1].toString() + result[2] + result[3];
+          if (key.equals(snapshotKey)) return;
+          snapshotKey = key;
+          String selectedId = null;
+          int selected = sessionTable.getSelectedRow();
+          if (selected >= 0)
+            selectedId =
+                (String) sessions.getValueAt(sessionTable.convertRowIndexToModel(selected), 6);
+          sessions.setRowCount(0);
+          for (ChatServer.SessionInfo s : (List<ChatServer.SessionInfo>) result[1])
+            sessions.addRow(
+                new Object[] {
+                  s.username(),
+                  s.address(),
+                  UiStyles.time(s.loginTime()),
+                  UiStyles.time(s.logoutTime()),
+                  s.online() ? "Online" : "Offline",
+                  s.groups(),
+                  s.id()
+                });
+          if (selectedId != null)
+            for (int i = 0; i < sessions.getRowCount(); i++)
+              if (selectedId.equals(sessions.getValueAt(i, 6))) {
+                int view = sessionTable.convertRowIndexToView(i);
+                sessionTable.setRowSelectionInterval(view, view);
+                break;
+              }
+          groups.setRowCount(0);
+          for (ChatServer.GroupInfo g : (List<ChatServer.GroupInfo>) result[2])
+            groups.addRow(new Object[] {g.name(), g.count(), g.members()});
+          logs.setRowCount(0);
+          List<ChatServer.LogEntry> entries = (List<ChatServer.LogEntry>) result[3];
+          for (int i = entries.size() - 1; i >= 0; i--) {
+            ChatServer.LogEntry log = entries.get(i);
+            logs.addRow(new Object[] {UiStyles.time(log.time()), log.event(), log.information()});
+          }
+        } catch (Exception e) {
+          status.setText("Không thể cập nhật dashboard: " + e.getMessage());
+        } finally {
+          refreshing = false;
         }
+      }
+    }.execute();
+  }
+
+  private void exportLogs() {
+    JFileChooser chooser = new JFileChooser();
+    chooser.setSelectedFile(new java.io.File("tcp-chat-log.txt"));
+    if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+    var path = chooser.getSelectedFile().toPath();
+    new SwingWorker<Void, Void>() {
+      protected Void doInBackground() throws Exception {
+        Files.write(path, server.getRecentLogs(), StandardCharsets.UTF_8);
+        return null;
+      }
+
+      protected void done() {
+        try {
+          get();
+          JOptionPane.showMessageDialog(ServerFrame.this, "Đã xuất 500 dòng log gần nhất.");
+        } catch (Exception e) {
+          JOptionPane.showMessageDialog(
+              ServerFrame.this, e.getMessage(), "Không thể xuất log", JOptionPane.ERROR_MESSAGE);
+        }
+      }
+    }.execute();
+  }
+
+  private static DefaultTableModel model(String... columns) {
+    return new DefaultTableModel(columns, 0) {
+      public boolean isCellEditable(int row, int col) {
+        return false;
+      }
+    };
+  }
+
+  private static JTable table(DefaultTableModel model) {
+    JTable table =
+        new JTable(model) {
+          @Override
+          public String getToolTipText(java.awt.event.MouseEvent event) {
+            int row = rowAtPoint(event.getPoint()), column = columnAtPoint(event.getPoint());
+            return row < 0 || column < 0 ? null : String.valueOf(getValueAt(row, column));
+          }
+        };
+    table.setRowHeight(32);
+    table.setGridColor(UiStyles.BORDER);
+    table.setForeground(UiStyles.NAVY);
+    table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
+    table.getTableHeader().setPreferredSize(new Dimension(10, 34));
+    return table;
+  }
+
+  private static String localIp() {
+    try {
+      return InetAddress.getLocalHost().getHostAddress();
+    } catch (Exception e) {
+      return "127.0.0.1";
     }
+  }
 }

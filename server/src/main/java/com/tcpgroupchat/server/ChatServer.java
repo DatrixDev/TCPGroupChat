@@ -2,319 +2,553 @@ package com.tcpgroupchat.server;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcpgroupchat.common.protocol.ChatMessage;
-
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.net.ServerSocket;
-import java.net.Socket;
+import com.tcpgroupchat.common.protocol.JsonLines;
+import com.tcpgroupchat.server.service.AccountStore;
+import java.io.*;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.nio.file.*;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ChatServer {
-    private static final int DEFAULT_PORT = 2006;
-    private static final String DEFAULT_GROUP = "study";
-    private static final int MAX_LOGS = 500;
+/** Plain TCP sockets. One reader and one bounded outgoing queue per connection. */
+public final class ChatServer {
+  public record LogEntry(String time, String event, String information) {}
 
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final ConcurrentHashMap<String, ClientSession> clients = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Set<String>> groups = new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<String> recentLogs = new CopyOnWriteArrayList<>();
-    private volatile ServerSocket serverSocket;
-    private volatile boolean running;
+  public record SessionInfo(
+      String id,
+      String username,
+      String address,
+      String loginTime,
+      String logoutTime,
+      boolean online,
+      String groups) {}
 
-    public static void main(String[] args) {
-        com.formdev.flatlaf.FlatLightLaf.setup();
-        javax.swing.SwingUtilities.invokeLater(() -> {
-            ChatServer server = new ChatServer();
-            ServerFrame frame = new ServerFrame(server);
-            frame.setVisible(true);
+  public record GroupInfo(String name, int count, String members) {}
+
+  public record Stats(
+      int accounts, int online, int members, long unicast, long group, long broadcast) {}
+
+  private final Object stateLock = new Object();
+  private final ObjectMapper mapper = new ObjectMapper();
+  private final Map<String, ClientSession> clients = new TreeMap<>();
+  private final Map<String, Set<String>> groups = new TreeMap<>();
+  private final Set<ClientSession> connections = new HashSet<>();
+  private final Deque<LogEntry> logs = new ArrayDeque<>();
+  private final Deque<ClientSession> history = new ArrayDeque<>();
+  private final AccountStore accounts;
+  private final Path dataRoot;
+  private volatile ServerSocket serverSocket;
+  private volatile boolean running;
+  private long unicastCount, groupCount, broadcastCount;
+
+  public ChatServer() {
+    this(Path.of(System.getProperty("chat.data", "server_data")));
+  }
+
+  public ChatServer(Path dataRoot) {
+    this.dataRoot = dataRoot.toAbsolutePath();
+    accounts = new AccountStore(this.dataRoot.resolve("accounts"));
+    groups.put("study", new TreeSet<>());
+  }
+
+  public static void main(String[] args) {
+    com.formdev.flatlaf.FlatLightLaf.setup();
+    com.tcpgroupchat.common.ui.UiStyles.install();
+    javax.swing.SwingUtilities.invokeLater(
+        () -> {
+          try {
+            new ServerFrame(new ChatServer()).setVisible(true);
+          } catch (RuntimeException e) {
+            javax.swing.JOptionPane.showMessageDialog(
+                null, e.getMessage(), "Không thể mở Server", javax.swing.JOptionPane.ERROR_MESSAGE);
+          }
         });
-    }
+  }
 
-    public void start(int port) throws IOException {
-        if (port < 1 || port > 65535) {
-            throw new IllegalArgumentException("Cổng phải nằm trong khoảng 1–65535.");
+  /** Binds before entering the accept loop. Run this method outside the Swing EDT. */
+  public void start(int port) throws IOException {
+    if (port < 0 || port > 65535)
+      throw new IllegalArgumentException("Cổng cần nằm trong khoảng 1–65535.");
+    final ServerSocket listener;
+    synchronized (stateLock) {
+      if (serverSocket != null) throw new IllegalStateException("Server đang chạy hoặc đang dừng.");
+      listener = new ServerSocket();
+      try {
+        listener.setReuseAddress(true);
+        listener.bind(new InetSocketAddress(port));
+      } catch (IOException e) {
+        listener.close();
+        throw e;
+      }
+      serverSocket = listener;
+      running = true;
+      log("SERVER_START", "Lắng nghe TCP tại 0.0.0.0:" + listener.getLocalPort());
+    }
+    try {
+      while (!listener.isClosed()) {
+        Socket socket = listener.accept();
+        synchronized (stateLock) {
+          if (!running || serverSocket != listener) {
+            socket.close();
+            continue;
+          }
+          if (connections.size() >= 100) {
+            socket.close();
+            log("REJECT", "Đạt giới hạn 100 kết nối.");
+            continue;
+          }
+          ClientSession session = new ClientSession(socket);
+          connections.add(session);
+          log("CONNECT", session.address());
+          session.start();
         }
-        if (running) {
-            log("SERVER", "Server đã đang chạy.");
-            return;
+      }
+    } catch (IOException e) {
+      if (!listener.isClosed()) throw e;
+    } finally {
+      synchronized (stateLock) {
+        if (serverSocket == listener) shutdown();
+      }
+    }
+  }
+
+  public void stop() {
+    synchronized (stateLock) {
+      shutdown();
+    }
+  }
+
+  private void shutdown() {
+    if (serverSocket == null) return;
+    running = false;
+    try {
+      serverSocket.close();
+    } catch (IOException ignored) {
+    }
+    for (ClientSession session : List.copyOf(connections)) disconnect(session, "Server dừng");
+    groups.values().forEach(Set::clear);
+    serverSocket = null;
+    log("SERVER_STOP", "Đã đóng toàn bộ kết nối và xóa thành viên nhóm.");
+  }
+
+  public boolean isRunning() {
+    return running;
+  }
+
+  public int getPort() {
+    ServerSocket socket = serverSocket;
+    return socket == null ? 2006 : socket.getLocalPort();
+  }
+
+  public List<String> getOnlineUsers() {
+    synchronized (stateLock) {
+      return List.copyOf(clients.keySet());
+    }
+  }
+
+  public List<LogEntry> getLogs() {
+    synchronized (stateLock) {
+      return List.copyOf(logs);
+    }
+  }
+
+  public List<String> getRecentLogs() {
+    return getLogs().stream()
+        .map(l -> l.time() + " [" + l.event() + "] " + l.information())
+        .toList();
+  }
+
+  public List<SessionInfo> getSessions() {
+    synchronized (stateLock) {
+      return history.stream()
+          .map(
+              s ->
+                  new SessionInfo(
+                      s.id,
+                      s.username,
+                      s.address(),
+                      s.loginTime,
+                      s.logoutTime,
+                      clients.get(s.username) == s,
+                      String.join(", ", joined(s.username))))
+          .toList();
+    }
+  }
+
+  public List<GroupInfo> getGroups() {
+    synchronized (stateLock) {
+      return groups.entrySet().stream()
+          .map(e -> new GroupInfo(e.getKey(), e.getValue().size(), String.join(", ", e.getValue())))
+          .toList();
+    }
+  }
+
+  public void disconnectSession(String id) {
+    synchronized (stateLock) {
+      connections.stream()
+          .filter(s -> s.id.equals(id))
+          .findFirst()
+          .ifPresent(s -> disconnect(s, "Quản trị viên ngắt phiên"));
+    }
+  }
+
+  public Stats getStats() {
+    synchronized (stateLock) {
+      return new Stats(
+          accounts.users().size(),
+          clients.size(),
+          groups.values().stream().mapToInt(Set::size).sum(),
+          unicastCount,
+          groupCount,
+          broadcastCount);
+    }
+  }
+
+  private void log(String event, String information) {
+    synchronized (stateLock) {
+      LogEntry entry =
+          new LogEntry(
+              LocalDateTime.now().toString(),
+              event,
+              information.replace('\n', ' ').replace('\r', ' '));
+      logs.addLast(entry);
+      if (logs.size() > 500) logs.removeFirst();
+      try {
+        Files.createDirectories(dataRoot.resolve("logs"));
+        Files.writeString(
+            dataRoot.resolve("logs").resolve(java.time.LocalDate.now() + ".log"),
+            entry.time() + "\t" + event + "\t" + entry.information() + System.lineSeparator(),
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.APPEND);
+      } catch (IOException e) {
+        System.err.println("Không thể ghi log: " + e.getMessage());
+      }
+    }
+  }
+
+  private void handle(ClientSession session, ChatMessage message) {
+    synchronized (stateLock) {
+      if (!running || session.closed.get()) return;
+      try {
+        if (message == null || message.getType() == null)
+          throw new IllegalArgumentException("Thông điệp thiếu loại.");
+        if ("REGISTER".equals(message.getType())) {
+          if (session.username != null)
+            throw new IllegalArgumentException("Hãy đăng xuất trước khi đăng ký.");
+          accounts.register(
+              message.getSender(),
+              message.getPassword(),
+              session.socket.getInetAddress().getHostAddress());
+          reply(session, message, "REGISTER_OK", "Đăng ký thành công. Bạn có thể đăng nhập.");
+          log("REGISTER", AccountStore.username(message.getSender()) + " từ " + session.address());
+          return;
         }
-
-        groups.putIfAbsent(DEFAULT_GROUP, ConcurrentHashMap.newKeySet());
-        try (ServerSocket listener = new ServerSocket(port)) {
-            serverSocket = listener;
-            running = true;
-            log("SERVER", "TCPGroupChat đang lắng nghe tại cổng " + port);
-            while (running && !listener.isClosed()) {
-                try {
-                    Socket socket = listener.accept();
-                    log("CONNECT", "Kết nối mới từ " + socket.getRemoteSocketAddress());
-                    Thread thread = new Thread(() -> handleConnection(socket), "client-" + socket.getPort());
-                    thread.setDaemon(true);
-                    thread.start();
-                } catch (IOException ex) {
-                    if (running) {
-                        log("ERROR", "Không thể nhận kết nối: " + ex.getMessage());
-                    }
-                }
-            }
-        } finally {
-            running = false;
-            serverSocket = null;
-            log("SERVER", "TCPGroupChat đã dừng.");
+        if ("LOGIN".equals(message.getType())) {
+          if (session.username != null)
+            throw new IllegalArgumentException("Kết nối này đã đăng nhập.");
+          String user = AccountStore.username(message.getSender());
+          if (!accounts.authenticate(user, message.getPassword()))
+            throw new IllegalArgumentException("Tên đăng nhập hoặc mật khẩu không đúng.");
+          if (clients.containsKey(user))
+            throw new IllegalArgumentException("Tài khoản đang đăng nhập ở client khác.");
+          session.username = user;
+          session.loginTime = LocalDateTime.now().toString();
+          session.socket.setSoTimeout(0);
+          clients.put(user, session);
+          history.addFirst(session);
+          // Keep all online sessions; trim the oldest offline record when necessary.
+          while (history.size() > 1000) {
+            ClientSession old =
+                history.stream()
+                    .filter(s -> clients.get(s.username) != s)
+                    .reduce((a, b) -> b)
+                    .orElse(null);
+            if (old == null) break;
+            history.remove(old);
+          }
+          reply(session, message, "LOGIN_OK", "Đăng nhập thành công: " + user);
+          log("LOGIN", user + " | phiên " + session.id + " | " + session.address());
+          broadcastSystem(user + " đã đăng nhập.");
+          publishUsers();
+          publishGroup("study");
+          return;
         }
+        if (session.username == null) throw new IllegalArgumentException("Hãy đăng nhập trước.");
+        route(session, message);
+      } catch (IllegalArgumentException e) {
+        reply(session, message, "ERROR", e.getMessage());
+        log(
+            "REJECT",
+            (session.username == null ? session.address() : session.username)
+                + " | "
+                + e.getMessage());
+      } catch (IOException e) {
+        reply(session, message, "ERROR", "Server không thể đọc/ghi dữ liệu tài khoản.");
+        log("ERROR", e.getMessage());
+      }
     }
+  }
 
-    public void stop() {
-        running = false;
-        ServerSocket current = serverSocket;
-        if (current != null) {
-            try {
-                current.close();
-            } catch (IOException ex) {
-                log("ERROR", "Lỗi khi đóng server socket: " + ex.getMessage());
-            }
-        }
-    }
-
-    public boolean isRunning() {
-        return running;
-    }
-
-    public int getPort() {
-        ServerSocket current = serverSocket;
-        return current == null ? DEFAULT_PORT : current.getLocalPort();
-    }
-
-    public List<String> getOnlineUsers() {
-        return clients.keySet().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
-    }
-
-    public List<String> getRecentLogs() {
-        return List.copyOf(recentLogs);
-    }
-
-    private void log(String event, String message) {
-        String line = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-                + "  [" + event + "]  " + message;
-        recentLogs.add(line);
-        while (recentLogs.size() > MAX_LOGS) {
-            recentLogs.remove(0);
-        }
-    }
-
-    private void handleConnection(Socket socket) {
-        ClientSession session = null;
-        try (socket;
-             BufferedReader reader = new BufferedReader(
-                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-             BufferedWriter writer = new BufferedWriter(
-                     new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
-
-            session = new ClientSession(socket, writer);
-            String line;
-            while ((line = reader.readLine()) != null) {
-                ChatMessage message;
-                try {
-                    message = mapper.readValue(line, ChatMessage.class);
-                } catch (IOException ex) {
-                    session.send(ChatMessage.of("ERROR", "SERVER", "Thông điệp JSON không hợp lệ."));
-                    continue;
-                }
-
-                if (message == null || message.getType() == null) {
-                    session.send(ChatMessage.of("ERROR", "SERVER", "Thông điệp thiếu loại."));
-                    continue;
-                }
-
-                if ("LOGIN".equals(message.getType())) {
-                    if (session.username != null) {
-                        session.send(ChatMessage.of("ERROR", "SERVER", "Kết nối này đã đăng nhập."));
-                        continue;
-                    }
-
-                    String username = cleanUsername(message.getSender());
-                    if (username == null) {
-                        session.send(ChatMessage.of("ERROR", "SERVER",
-                                "Tên người dùng phải có 2–20 ký tự: chữ không dấu, số, _ hoặc -."));
-                        continue;
-                    }
-
-                    ClientSession existing = clients.putIfAbsent(username, session);
-                    if (existing != null) {
-                        session.send(ChatMessage.of("ERROR", "SERVER", "Tên người dùng đang được sử dụng."));
-                        break;
-                    }
-
-                    session.username = username;
-                    session.send(ChatMessage.of("LOGIN_OK", "SERVER", "Đăng nhập thành công: " + username));
-                    broadcastSystem(username + " đã kết nối.");
-                    sendUserList();
-                    log("LOGIN", username + " kết nối từ " + socket.getRemoteSocketAddress());
-                    continue;
-                }
-
-                if (session.username == null) {
-                    session.send(ChatMessage.of("ERROR", "SERVER", "Hãy đăng nhập trước."));
-                    continue;
-                }
-
-                route(session, message);
-            }
-        } catch (IOException ex) {
-            log("DISCONNECT", "Kết nối kết thúc: " + ex.getMessage());
-        } finally {
-            if (session != null && session.username != null) {
-                String username = session.username;
-                clients.remove(username, session);
-                groups.values().forEach(members -> members.remove(username));
-                broadcastSystem(username + " đã ngắt kết nối.");
-                sendUserList();
-                log("LOGOUT", username + " đã ngắt kết nối.");
-            }
-        }
-    }
-
-    private void route(ClientSession sender, ChatMessage message) {
-        String content = message.getContent() == null ? "" : message.getContent().trim();
-
-        switch (message.getType()) {
-            case "JOIN_GROUP" -> {
-                String group = normalizeGroup(message.getGroup());
-                Set<String> members = groups.computeIfAbsent(group, ignored -> ConcurrentHashMap.newKeySet());
-                boolean added = members.add(sender.username);
-                sender.send(new ChatMessage("SYSTEM", "SERVER", null, group,
-                        added ? "Bạn đã tham gia nhóm #" + group : "Bạn đã ở trong nhóm #" + group));
-                if (added) {
-                    sendToGroup(group,
-                            ChatMessage.of("SYSTEM", "SERVER", sender.username + " đã tham gia nhóm #" + group),
-                            sender.username);
-                    log("GROUP", sender.username + " tham gia nhóm #" + group);
-                }
-            }
-            case "LEAVE_GROUP" -> {
-                String group = normalizeGroup(message.getGroup());
-                Set<String> members = groups.get(group);
-                if (members != null && members.remove(sender.username)) {
-                    sender.send(new ChatMessage("SYSTEM", "SERVER", null, group,
-                            "Bạn đã rời nhóm #" + group));
-                    sendToGroup(group,
-                            ChatMessage.of("SYSTEM", "SERVER", sender.username + " đã rời nhóm #" + group),
-                            null);
-                    log("GROUP", sender.username + " rời nhóm #" + group);
-                } else {
-                    sender.send(ChatMessage.of("ERROR", "SERVER", "Bạn chưa tham gia nhóm #" + group));
-                }
-            }
-            case "GROUP_MESSAGE" -> {
-                String group = normalizeGroup(message.getGroup());
-                Set<String> members = groups.get(group);
-                if (members == null || !members.contains(sender.username)) {
-                    sender.send(ChatMessage.of("ERROR", "SERVER",
-                            "Bạn cần Join nhóm trước khi gửi tin nhắn nhóm."));
-                } else if (!content.isBlank()) {
-                    sendToGroup(group,
-                            new ChatMessage("GROUP_MESSAGE", sender.username, null, group, content), null);
-                    log("GROUP MSG", sender.username + " → #" + group + ": " + content);
-                }
-            }
-            case "UNICAST" -> {
-                String recipient = message.getRecipient();
-                if (recipient == null || recipient.isBlank()) {
-                    sender.send(ChatMessage.of("ERROR", "SERVER", "Hãy nhập tên người nhận."));
-                    break;
-                }
-                ClientSession target = clients.get(recipient.trim());
-                if (target == null) {
-                    sender.send(ChatMessage.of("ERROR", "SERVER", "Người nhận không online."));
-                } else if (!content.isBlank()) {
-                    ChatMessage outgoing = new ChatMessage("UNICAST", sender.username, recipient.trim(), null, content);
-                    target.send(outgoing);
-                    if (target != sender) {
-                        sender.send(outgoing);
-                    }
-                    log("UNICAST", sender.username + " → " + recipient.trim() + ": " + content);
-                }
-            }
-            case "BROADCAST" -> {
-                if (!content.isBlank()) {
-                    ChatMessage outgoing = ChatMessage.of("BROADCAST", sender.username, content);
-                    clients.values().forEach(target -> target.send(outgoing));
-                    log("BROADCAST", sender.username + ": " + content);
-                }
-            }
-            case "GET_USERS" -> sendUserList();
-            default -> sender.send(ChatMessage.of("ERROR", "SERVER", "Loại thông điệp không được hỗ trợ."));
-        }
-    }
-
-    private void sendToGroup(String group, ChatMessage message, String excludedUser) {
+  private void route(ClientSession sender, ChatMessage request) {
+    switch (request.getType()) {
+      case "JOIN_GROUP", "LEAVE_GROUP", "GET_GROUP" -> {
+        String group = groupName(request.getGroup());
         Set<String> members = groups.get(group);
-        if (members == null) return;
-        for (String username : members) {
-            if (excludedUser == null || !excludedUser.equals(username)) {
-                ClientSession client = clients.get(username);
-                if (client != null) client.send(message);
-            }
+        if ("GET_GROUP".equals(request.getType())) {
+          sendGroupState(sender, group, request);
+          return;
         }
-    }
-
-    private void broadcastSystem(String content) {
-        ChatMessage message = ChatMessage.of("SYSTEM", "SERVER", content);
-        clients.values().forEach(client -> client.send(message));
-    }
-
-    private void sendUserList() {
-        String content = String.join(",", clients.keySet().stream().sorted().toList());
-        ChatMessage message = ChatMessage.of("USER_LIST", "SERVER", content);
-        clients.values().forEach(client -> client.send(message));
-    }
-
-    private static String cleanUsername(String raw) {
-        if (raw == null) return null;
-        String value = raw.trim();
-        return value.matches("[A-Za-z0-9_-]{2,20}") ? value : null;
-    }
-
-    private static String normalizeGroup(String raw) {
-        if (raw == null || raw.isBlank()) return DEFAULT_GROUP;
-        String value = raw.trim().toLowerCase();
-        return value.matches("[a-z0-9_-]{1,30}") ? value : DEFAULT_GROUP;
-    }
-
-    private final class ClientSession {
-        private final Socket socket;
-        private final BufferedWriter writer;
-        private final Object lock = new Object();
-        private volatile String username;
-
-        private ClientSession(Socket socket, BufferedWriter writer) {
-            this.socket = socket;
-            this.writer = writer;
+        if ("JOIN_GROUP".equals(request.getType())) {
+          if (members == null) {
+            if (groups.size() >= 100) throw new IllegalArgumentException("Đạt giới hạn 100 phòng.");
+            groups.put(group, members = new TreeSet<>());
+          }
+          boolean added = members.add(sender.username);
+          reply(
+              sender, request, "JOIN_OK", added ? "Đã Join #" + group : "Bạn đã ở trong #" + group);
+          if (added) {
+            groupSystem(group, sender.username + " đã Join nhóm.");
+            log("JOIN", sender.username + " → #" + group);
+          }
+        } else {
+          if (members == null || !members.remove(sender.username))
+            throw new IllegalArgumentException("Bạn chưa Join #" + group);
+          reply(sender, request, "LEAVE_OK", "Đã Leave #" + group);
+          groupSystem(group, sender.username + " đã Leave nhóm.");
+          log("LEAVE", sender.username + " ← #" + group);
         }
+        publishGroup(group);
+      }
+      case "UNICAST", "GROUP_MESSAGE", "BROADCAST" -> {
+        String content = request.getContent() == null ? "" : request.getContent().trim();
+        if (content.isBlank() || content.length() > 4000)
+          throw new IllegalArgumentException("Tin nhắn cần từ 1 đến 4000 ký tự.");
+        ChatMessage outgoing = ChatMessage.of(request.getType(), sender.username, content);
+        outgoing.setTimestamp(LocalDateTime.now().toString());
+        outgoing.setRequestId(request.getRequestId());
+        List<ClientSession> targets;
+        String destination;
+        switch (request.getType()) {
+          case "UNICAST" -> {
+            String recipient = AccountStore.username(request.getRecipient());
+            ClientSession target = clients.get(recipient);
+            if (target == null) throw new IllegalArgumentException("Người nhận không online.");
+            outgoing.setRecipient(recipient);
+            targets = List.of(target);
+            destination = recipient;
+            unicastCount++;
+          }
+          case "GROUP_MESSAGE" -> {
+            String group = groupName(request.getGroup());
+            Set<String> members = groups.getOrDefault(group, Set.of());
+            // The assignment permits sending after Leave. Membership controls RECEIVING.
+            targets = members.stream().map(clients::get).filter(Objects::nonNull).toList();
+            if (targets.isEmpty())
+              throw new IllegalArgumentException("Nhóm chưa có thành viên online.");
+            outgoing.setGroup(group);
+            destination = "#" + group;
+            groupCount++;
+          }
+          default -> {
+            targets = List.copyOf(clients.values());
+            destination = "ALL";
+            broadcastCount++;
+          }
+        }
+        targets.forEach(s -> s.send(outgoing));
+        reply(
+            sender,
+            request,
+            "ACK",
+            "Server định tuyến tới "
+                + targets.size()
+                + " client: "
+                + String.join(", ", targets.stream().map(s -> s.username).toList()));
+        log(
+            request.getType(),
+            sender.username
+                + " → "
+                + destination
+                + " | nhận: "
+                + String.join(", ", targets.stream().map(s -> s.username).toList())
+                + " | "
+                + content);
+      }
+      case "GET_USERS" -> {
+        ChatMessage response = ChatMessage.of("USER_LIST", "SERVER", null);
+        response.setUsers(List.copyOf(clients.keySet()));
+        response.setRequestId(request.getRequestId());
+        sender.send(response);
+      }
+      case "LOGOUT" -> disconnect(sender, "Đăng xuất");
+      case "PING" -> reply(sender, request, "PONG", "Server đang hoạt động.");
+      default -> throw new IllegalArgumentException("Loại thông điệp không được hỗ trợ.");
+    }
+  }
 
-        private void send(ChatMessage message) {
-            try {
-                synchronized (lock) {
-                    writer.write(mapper.writeValueAsString(message));
+  private void reply(ClientSession target, ChatMessage request, String type, String content) {
+    ChatMessage response = ChatMessage.of(type, "SERVER", content);
+    response.setRequestId(request == null ? null : request.getRequestId());
+    response.setGroup(request == null ? null : request.getGroup());
+    response.setSessionId(target.id);
+    response.setTimestamp(LocalDateTime.now().toString());
+    target.send(response);
+  }
+
+  private List<String> joined(String username) {
+    return groups.entrySet().stream()
+        .filter(e -> e.getValue().contains(username))
+        .map(Map.Entry::getKey)
+        .toList();
+  }
+
+  private void sendGroupState(ClientSession target, String group, ChatMessage request) {
+    ChatMessage state = new ChatMessage("GROUP_STATE", "SERVER", null, group, null);
+    state.setMembers(List.copyOf(groups.getOrDefault(group, Set.of())));
+    state.setJoinedGroups(joined(target.username));
+    state.setRequestId(request == null ? null : request.getRequestId());
+    target.send(state);
+  }
+
+  private void publishGroup(String group) {
+    clients.values().forEach(s -> sendGroupState(s, group, null));
+  }
+
+  private void groupSystem(String group, String content) {
+    ChatMessage message = new ChatMessage("SYSTEM", "SERVER", null, group, content);
+    groups.getOrDefault(group, Set.of()).stream()
+        .map(clients::get)
+        .filter(Objects::nonNull)
+        .forEach(s -> s.send(message));
+  }
+
+  private void broadcastSystem(String content) {
+    clients.values().forEach(s -> s.send(ChatMessage.of("SYSTEM", "SERVER", content)));
+  }
+
+  private void publishUsers() {
+    ChatMessage message = ChatMessage.of("USER_LIST", "SERVER", null);
+    message.setUsers(List.copyOf(clients.keySet()));
+    clients.values().forEach(s -> s.send(message));
+  }
+
+  private void disconnect(ClientSession session, String reason) {
+    synchronized (stateLock) {
+      if (!session.closed.compareAndSet(false, true)) return;
+      try {
+        session.socket.close();
+      } catch (IOException ignored) {
+      }
+      if (session.writerThread != null) session.writerThread.interrupt();
+      session.outgoing.clear();
+      connections.remove(session);
+      if (session.username != null && clients.remove(session.username, session)) {
+        session.logoutTime = LocalDateTime.now().toString();
+        List<String> changed = joined(session.username);
+        groups.values().forEach(s -> s.remove(session.username));
+        log("LOGOUT", session.username + " | phiên " + session.id + " | " + reason);
+        if (running) {
+          broadcastSystem(session.username + " đã ngắt kết nối.");
+          publishUsers();
+          changed.forEach(this::publishGroup);
+        }
+      }
+    }
+  }
+
+  private static String groupName(String raw) {
+    String group = raw == null || raw.isBlank() ? "study" : raw.trim().toLowerCase(Locale.ROOT);
+    if (!group.matches("[a-z0-9_-]{1,30}"))
+      throw new IllegalArgumentException("Tên nhóm cần 1–30 ký tự: chữ không dấu, số, _ hoặc -.");
+    return group;
+  }
+
+  private final class ClientSession {
+    final Socket socket;
+    final String id = UUID.randomUUID().toString();
+    final ArrayBlockingQueue<String> outgoing = new ArrayBlockingQueue<>(256);
+    final AtomicBoolean closed = new AtomicBoolean();
+    Thread writerThread;
+    String username, loginTime = "", logoutTime = "";
+
+    ClientSession(Socket socket) throws IOException {
+      this.socket = socket;
+      socket.setTcpNoDelay(true);
+      socket.setSoTimeout(60_000);
+    }
+
+    String address() {
+      return socket.getRemoteSocketAddress().toString();
+    }
+
+    void start() {
+      writerThread =
+          new Thread(
+              () -> {
+                try (BufferedWriter writer =
+                    new BufferedWriter(
+                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
+                  while (!closed.get()) {
+                    writer.write(outgoing.take());
                     writer.newLine();
                     writer.flush();
+                  }
+                } catch (IOException | InterruptedException e) {
+                  /* cleanup below also wakes the reader */
+                } finally {
+                  disconnect(this, "Kết nối gửi đã đóng");
                 }
-            } catch (IOException ex) {
-                try {
-                    socket.close();
-                } catch (IOException ignored) {
-                    // Socket is already unavailable.
+              },
+              "writer-" + id);
+      writerThread.setDaemon(true);
+      writerThread.start();
+      Thread readerThread =
+          new Thread(
+              () -> {
+                try (BufferedReader reader =
+                    new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+                  String line;
+                  while (!closed.get() && (line = JsonLines.read(reader)) != null) {
+                    ChatMessage message;
+                    try {
+                      message = mapper.readValue(line, ChatMessage.class);
+                    } catch (IOException e) {
+                      reply(this, null, "ERROR", "Thông điệp JSON không hợp lệ.");
+                      continue;
+                    }
+                    handle(this, message);
+                  }
+                } catch (IOException e) {
+                  if (!closed.get()) log("DISCONNECT", address() + " | " + e.getMessage());
+                } finally {
+                  disconnect(this, "Client đóng kết nối");
                 }
-            }
-        }
+              },
+              "reader-" + id);
+      readerThread.setDaemon(true);
+      readerThread.start();
     }
+
+    void send(ChatMessage message) {
+      if (closed.get()) return;
+      try {
+        if (!outgoing.offer(mapper.writeValueAsString(message))) {
+          // Schedule cleanup rather than mutating recipient collections mid-broadcast.
+          socket.close();
+          writerThread.interrupt();
+        }
+      } catch (IOException e) {
+        try {
+          socket.close();
+        } catch (IOException ignored) {
+        }
+        writerThread.interrupt();
+      }
+    }
+  }
 }
