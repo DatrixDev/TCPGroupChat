@@ -7,13 +7,16 @@
   <packaging>pom</packaging>
   <modules><module>common</module><module>server</module><module>client</module></modules>
   <properties>
-    <maven.compiler.release>21</maven.compiler.release>
+    <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <jackson.version>2.18.2</jackson.version>
+    <flatlaf.version>3.5.4</flatlaf.version>
   </properties>
   <dependencyManagement>
     <dependencies>
       <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${jackson.version}</version></dependency>
+      <dependency><groupId>com.formdev</groupId><artifactId>flatlaf</artifactId><version>${flatlaf.version}</version></dependency>
+      <dependency><groupId>com.formdev</groupId><artifactId>flatlaf-extras</artifactId><version>${flatlaf.version}</version></dependency>
     </dependencies>
   </dependencyManagement>
   <build>

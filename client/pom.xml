@@ -6,6 +6,7 @@
   <dependencies>
     <dependency><groupId>com.tcpgroupchat</groupId><artifactId>common</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
-    <dependency><groupId>com.formdev</groupId><artifactId>flatlaf</artifactId><version>3.6.1</version></dependency>
+    <dependency><groupId>com.formdev</groupId><artifactId>flatlaf</artifactId></dependency>
+    <dependency><groupId>com.formdev</groupId><artifactId>flatlaf-extras</artifactId></dependency>
   </dependencies>
 </project>
