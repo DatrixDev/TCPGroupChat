@@ -8,12 +8,12 @@
 
 - Màn hình đăng ký/đăng nhập với tài khoản, mật khẩu, xác nhận mật khẩu và IP/cổng server.
 - Một tài khoản chỉ có một phiên online. Tên đăng nhập không phân biệt hoa/thường, chuẩn hóa về chữ thường.
-- Giao diện navy theo UDPMail: menu trái, danh sách nhóm/client, bong bóng chat, ba nút chế độ gửi. Nhật ký phiên mở từ menu.
+- Giao diện navy theo UDPMail: menu trái, danh sách nhóm/client, bong bóng chat, ba tab Unicast / Group / Broadcast ở đầu khung chat. Nhật ký phiên mở từ menu.
 - Hiện IP máy client ở góc dưới bên phải, tên tài khoản, địa chỉ server, thời gian đăng nhập; mã phiên nằm trong tooltip của dòng thông tin và nhật ký phiên.
 - Danh sách client online cập nhật khi đăng nhập/ngắt kết nối và ẩn chính tài khoản đang dùng. Bấm vào một người để mở cuộc trò chuyện riêng với người đó.
 - Tin riêng tách theo từng người; Group tách theo tên nhóm; Broadcast có khung riêng. Tin đến khi đang xem cuộc trò chuyện khác vẫn được giữ để xem khi chuyển lại. Lịch sử này chỉ giữ trong phiên hiện tại, chưa lưu offline.
 - Join/Leave và thành viên nhóm chỉ hiện khi chọn Group.
-- Chọn chế độ **Unicast / Group / Broadcast**. Nút Gửi và Enter dùng đúng chế độ đang chọn.
+- Chọn tab **Unicast / Group / Broadcast** ở đầu khung chat. Ô người nhận chỉ hiện trong tab Unicast. Nút Gửi và Enter dùng đúng chế độ đang chọn.
 - **Tạo nhóm**: nhập tên và tick chọn nhiều client online; server thêm người tạo và những người được chọn vào ngay, thông báo cho từng người. Nút **Thêm người** cho thành viên bổ sung người online vào nhóm.
 - Danh sách nhóm cập nhật từ server; bấm nhóm để mở riêng cuộc trò chuyện của nhóm đó. Join/Leave và danh sách thành viên do server xác nhận.
 - Nhật ký riêng cho phiên: gửi yêu cầu, nhận tin, ACK, lỗi, mất kết nối.

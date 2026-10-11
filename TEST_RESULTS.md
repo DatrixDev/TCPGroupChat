@@ -50,3 +50,9 @@ Phạm vi kiểm tra: chạy trên Linux với Java 17; chưa chạy thực tế
 
 - 11 kiểm thử TCP qua: bổ sung tạo nhóm với người được chọn, tự thêm người tạo, loại trùng, thêm người vào nhóm, Leave, từ chối người ngoài nhóm thêm thành viên, trùng tên nhóm và từ chối danh sách có người offline mà không tạo nhóm dở dang.
 - Chạy hộp thoại Swing thật, tick hai người rồi tạo nhóm: server có ba thành viên, các client nhận được nhóm mới, người tạo tự mở cuộc trò chuyện nhóm.
+
+## Thanh tab chế độ gửi
+
+- Chuyển Unicast / Group / Broadcast thành tab ở đầu khung chat; ô người nhận nằm trong phần đầu nội dung Unicast.
+- Chạy Swing với 5 client: bấm tab Broadcast rồi quay lại Unicast giữ đúng lịch sử và chế độ gửi; tạo nhóm tự mở tab Group.
+- Maven package thành công, 11 kiểm thử TCP qua.

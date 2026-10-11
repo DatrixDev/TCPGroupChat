@@ -48,7 +48,7 @@ public final class ChatFrame extends JFrame {
   private final JLabel chatTitle = UiStyles.title("Nhóm #study", 22);
   private final CardLayout workspaceLayout = new CardLayout();
   private final JPanel workspace = new JPanel(workspaceLayout);
-  private final JToggleButton[] modeButtons = new JToggleButton[3];
+  private final JTabbedPane modeTabs = new JTabbedPane();
   private JScrollPane bubbleScroll;
 
   public ChatFrame(ClientConnection connection, Runnable onLogout) {
@@ -228,6 +228,10 @@ public final class ChatFrame extends JFrame {
     heading.add(chatTitle, BorderLayout.NORTH);
     membership.setForeground(UiStyles.MUTED);
     heading.add(membership, BorderLayout.SOUTH);
+    recipient.setColumns(12);
+    recipient.putClientProperty("JTextField.placeholderText", "Người nhận");
+    recipient.setPreferredSize(new Dimension(140, 38));
+    heading.add(recipient, BorderLayout.CENTER);
     chatHeader.add(heading, BorderLayout.CENTER);
     JPanel membershipActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     membershipActions.setOpaque(false);
@@ -257,27 +261,6 @@ public final class ChatFrame extends JFrame {
 
     JPanel compose = new JPanel(new BorderLayout(0, 12));
     compose.setOpaque(false);
-    JPanel choices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-    choices.setOpaque(false);
-    ButtonGroup modes = new ButtonGroup();
-    String[] names = {"Unicast", "Group", "Broadcast"};
-    for (int i = 0; i < 3; i++) {
-      final int index = i;
-      JToggleButton button = new JToggleButton(names[i]);
-      button.setPreferredSize(new Dimension(100, 40));
-      button.setMargin(new Insets(6, 8, 6, 8));
-      button.addActionListener(e -> mode.setSelectedIndex(index));
-      modeButtons[i] = button;
-      modes.add(button);
-      choices.add(button);
-    }
-    recipient.setColumns(10);
-    recipient.putClientProperty("JTextField.placeholderText", "Người nhận");
-    recipient.setPreferredSize(new Dimension(140, 40));
-    choices.add(Box.createHorizontalStrut(10));
-    choices.add(recipient);
-    choices.setPreferredSize(new Dimension(10, 40));
-    compose.add(choices, BorderLayout.NORTH);
     JPanel message = new JPanel(new BorderLayout(10, 0));
     message.setOpaque(false);
     input.setPreferredSize(new Dimension(300, 48));
@@ -288,7 +271,23 @@ public final class ChatFrame extends JFrame {
     message.add(send, BorderLayout.EAST);
     compose.add(message, BorderLayout.CENTER);
     chat.add(compose, BorderLayout.SOUTH);
-    chatWorkspace.add(chat, BorderLayout.CENTER);
+    String[] names = {"Unicast", "Group", "Broadcast"};
+    for (String name : names) {
+      JPanel page = new JPanel(new BorderLayout());
+      page.setOpaque(false);
+      modeTabs.addTab(name, page);
+    }
+    ((JPanel) modeTabs.getComponentAt(0)).add(chat, BorderLayout.CENTER);
+    modeTabs.putClientProperty("JTabbedPane.tabHeight", 44);
+    modeTabs.putClientProperty("JTabbedPane.showContentSeparator", false);
+    modeTabs.addChangeListener(e -> {
+      JPanel page = (JPanel) modeTabs.getSelectedComponent();
+      page.add(chat, BorderLayout.CENTER);
+      page.revalidate();
+      page.repaint();
+      if (mode.getSelectedIndex() != modeTabs.getSelectedIndex()) mode.setSelectedIndex(modeTabs.getSelectedIndex());
+    });
+    chatWorkspace.add(modeTabs, BorderLayout.CENTER);
     workspace.setOpaque(false);
     workspace.add(chatWorkspace, "chat");
     UiStyles.area(activity);
@@ -433,11 +432,7 @@ public final class ChatFrame extends JFrame {
   private void updateDestination() {
     recipient.setEnabled(mode.getSelectedIndex() == 0 && !connection.isClosed());
     recipient.setVisible(mode.getSelectedIndex() == 0);
-    for (int i = 0; i < modeButtons.length; i++) {
-      modeButtons[i].setSelected(i == mode.getSelectedIndex());
-      modeButtons[i].setBackground(i == mode.getSelectedIndex() ? UiStyles.PRIMARY : Color.WHITE);
-      modeButtons[i].setForeground(i == mode.getSelectedIndex() ? Color.WHITE : UiStyles.NAVY);
-    }
+    if (modeTabs.getSelectedIndex() != mode.getSelectedIndex()) modeTabs.setSelectedIndex(mode.getSelectedIndex());
     boolean groupMode = mode.getSelectedIndex() == 1;
     join.setVisible(groupMode);
     leave.setVisible(groupMode);
@@ -631,7 +626,7 @@ public final class ChatFrame extends JFrame {
     pending.clear();
     received.clear();
     addPeople.setEnabled(false);
-    for (JToggleButton button : modeButtons) button.setEnabled(false);
+    for (int i = 0; i < modeTabs.getTabCount(); i++) modeTabs.setEnabledAt(i, false);
     memberChips.removeAll();
     membership.setText("Đã ngắt kết nối");
     log("DISCONNECT", reason);
