@@ -8,7 +8,8 @@
 
 - Màn hình đăng ký/đăng nhập với tài khoản, mật khẩu, xác nhận mật khẩu và IP/cổng server.
 - Một tài khoản chỉ có một phiên online. Tên đăng nhập không phân biệt hoa/thường, chuẩn hóa về chữ thường.
-- Hiện tên tài khoản, địa chỉ server, thời gian đăng nhập; mã phiên nằm trong tooltip của dòng thông tin và nhật ký phiên.
+- Giao diện navy theo UDPMail: menu trái, danh sách nhóm/client, bong bóng chat, ba nút chế độ gửi. Nhật ký phiên mở từ menu.
+- Hiện IP máy client ở góc dưới bên phải, tên tài khoản, địa chỉ server, thời gian đăng nhập; mã phiên nằm trong tooltip của dòng thông tin và nhật ký phiên.
 - Danh sách client online cập nhật khi đăng nhập/ngắt kết nối; chọn một client để gửi riêng.
 - Chọn chế độ **Unicast / Group / Broadcast**. Nút Gửi và Enter dùng đúng chế độ đang chọn.
 - Xem nhóm bất kỳ, Join, Leave, danh sách thành viên và trạng thái đã Join/ngoài nhóm do server xác nhận.
@@ -17,11 +18,11 @@
 
 **Server**
 
-- Dashboard khởi động/dừng, cấu hình cổng TCP, hiện IP LAN và thời gian hệ thống.
-- Thống kê tài khoản, client online, tổng lượt Join hiện tại và số bản tin Unicast/Group/Broadcast.
+- Dashboard theo UDPMail: ba thẻ thống kê, bảng người dùng và nhật ký xếp dọc. Khởi động/dừng, cấu hình cổng TCP, hiện IP LAN và thời gian hệ thống.
+- Thống kê tài khoản, client online, tổng lượt Join hiện tại; các bản tin Unicast/Group/Broadcast được ghi trong nhật ký.
 - Bảng phiên: tài khoản, IP/cổng client, giờ đăng nhập/đăng xuất, Online/Offline, nhóm và mã phiên (hiện 8 ký tự đầu, tooltip chứa mã đầy đủ).
 - Ngắt một phiên đã chọn. Lịch sử tối đa 1.000 phiên trong bộ nhớ; chi tiết login/logout còn trong file log.
-- Bảng phòng/nhóm và danh sách người nhận hiện tại.
+- Nút **Nhóm** mở bảng phòng/nhóm và danh sách người nhận hiện tại.
 - Log thời gian/sự kiện/thông tin, tìm kiếm, lọc theo sự kiện, xuất 500 dòng gần nhất. File log hàng ngày lưu toàn bộ sự kiện.
 - Dừng server đóng cả socket đang đăng nhập và chưa đăng nhập, xóa membership; khởi động lại giữ tài khoản.
 

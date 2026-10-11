@@ -16,9 +16,9 @@ import javax.swing.table.*;
 public final class ServerFrame extends JFrame {
   private final ChatServer server;
   private final JLabel state = new JLabel("ĐÃ DỪNG"), status = new JLabel(), clock = new JLabel();
-  private final JLabel[] values = new JLabel[6];
+  private final JLabel[] values = new JLabel[3];
   private final JButton start = UiStyles.button("Khởi động", "play", true),
-      stop = UiStyles.button("Dừng Server", "square", false);
+      stop = UiStyles.button("Dừng server", "square", false);
   private final JSpinner port;
   private final DefaultTableModel sessions =
       model(
@@ -32,7 +32,7 @@ public final class ServerFrame extends JFrame {
   private final DefaultTableModel groups = model("Nhóm", "Thành viên", "Danh sách nhận tin");
   private final DefaultTableModel logs = model("Thời gian", "Sự kiện", "Thông tin");
   private final JTable sessionTable = table(sessions), logTable = table(logs);
-  private final JTextField search = new JTextField(24);
+  private final JTextField search = new JTextField(12);
   private final JComboBox<String> filter =
       new JComboBox<>(
           new String[] {
@@ -64,11 +64,12 @@ public final class ServerFrame extends JFrame {
     } catch (NumberFormatException ignored) {
     }
     if (initialPort < 1 || initialPort > 65535) initialPort = 2006;
+    if (server.isRunning()) initialPort = server.getPort();
     port = new JSpinner(new SpinnerNumberModel(initialPort, 1, 65535, 1));
     port.setEditor(new JSpinner.NumberEditor(port, "0"));
     setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-    setSize(1320, 900);
-    setMinimumSize(new Dimension(1100, 780));
+    setSize(1250, 800);
+    setMinimumSize(new Dimension(1200, 700));
     setLocationRelativeTo(null);
     setIconImage(IconManager.image("network", 32, 32, UiStyles.PRIMARY));
     JPanel root = new JPanel(new BorderLayout(0, 16));
@@ -79,20 +80,16 @@ public final class ServerFrame extends JFrame {
     JPanel center = new JPanel(new BorderLayout(0, 14));
     center.setOpaque(false);
     center.add(metrics(), BorderLayout.NORTH);
-    JTabbedPane topTabs = new JTabbedPane();
-    topTabs.addTab(
-        "Phiên đăng nhập", IconManager.load("users", 18, 18, UiStyles.PRIMARY), sessionCard());
-    JPanel groupCard = UiStyles.card(new BorderLayout());
-    groupCard.add(new JScrollPane(table(groups)));
-    topTabs.addTab(
-        "Phòng / Nhóm", IconManager.load("network", 18, 18, UiStyles.PRIMARY), groupCard);
-    JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topTabs, logCard());
-    split.setResizeWeight(.46);
+    JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, sessionCard(), logCard());
+    split.setResizeWeight(.52);
+    split.setDividerSize(12);
     split.setBorder(null);
+    split.setOpaque(false);
     center.add(split, BorderLayout.CENTER);
     root.add(center, BorderLayout.CENTER);
     JPanel bottom = new JPanel(new BorderLayout());
-    bottom.setOpaque(false);
+    bottom.setBackground(Color.WHITE);
+    bottom.setBorder(new EmptyBorder(10, 12, 10, 12));
     status.setForeground(UiStyles.NAVY);
     clock.setForeground(UiStyles.MUTED);
     bottom.add(status, BorderLayout.WEST);
@@ -117,47 +114,73 @@ public final class ServerFrame extends JFrame {
   }
 
   private JPanel header() {
-    JPanel panel = new JPanel(new BorderLayout(0, 12));
+    JPanel panel = new JPanel(new BorderLayout(16, 0));
     panel.setOpaque(false);
-    JLabel title = UiStyles.title("TCPGroupChat Server", 29);
-    title.setIcon(IconManager.load("network", 38, 38, UiStyles.PRIMARY));
-    title.setIconTextGap(12);
-    panel.add(title, BorderLayout.WEST);
-    state.setOpaque(true);
-    state.setBorder(new EmptyBorder(9, 14, 9, 14));
-    panel.add(state, BorderLayout.EAST);
-    JPanel controls = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+    JPanel titleBlock = new JPanel(new BorderLayout(0, 6));
+    titleBlock.setOpaque(false);
+    JLabel title = UiStyles.title("TCP CHAT SERVER", 27);
+    title.setIcon(IconManager.load("network", 44, 44, UiStyles.PRIMARY));
+    title.setIconTextGap(14);
+    titleBlock.add(title, BorderLayout.NORTH);
+    JLabel subtitle = new JLabel("Quản lý kết nối và nhóm chat");
+    subtitle.setForeground(UiStyles.MUTED);
+    titleBlock.add(subtitle, BorderLayout.SOUTH);
+    panel.add(titleBlock, BorderLayout.WEST);
+    JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
     controls.setOpaque(false);
-    controls.add(new JLabel("TCP Client–Server    •    IP LAN: " + localIp()));
-    controls.add(new JLabel("Cổng:"));
-    port.setPreferredSize(new Dimension(90, 40));
-    controls.add(port);
+    state.setOpaque(true);
+    state.setBorder(new EmptyBorder(14, 10, 14, 10));
+    state.setFont(new Font("Segoe UI", Font.BOLD, 12));
+    controls.add(state);
+    JPanel ip = UiStyles.card(new BorderLayout(0, 4));
+    ip.setBorder(new EmptyBorder(8, 12, 8, 12));
+    ip.add(new JLabel("Địa chỉ IP"), BorderLayout.NORTH);
+    ip.add(UiStyles.title(localIp(), 14), BorderLayout.CENTER);
+    controls.add(ip);
+    JPanel portCard = UiStyles.card(new BorderLayout(0, 4));
+    portCard.setBorder(new EmptyBorder(5, 10, 5, 10));
+    portCard.add(new JLabel("Port"), BorderLayout.NORTH);
+    port.setPreferredSize(new Dimension(85, 28));
+    portCard.add(port, BorderLayout.CENTER);
+    controls.add(portCard);
+    start.setPreferredSize(new Dimension(145, 50));
+    stop.setPreferredSize(new Dimension(155, 50));
+    stop.setBackground(UiStyles.ERROR);
+    stop.setForeground(Color.WHITE);
+    stop.setIcon(IconManager.load("square", 18, 18, Color.WHITE));
     controls.add(start);
     controls.add(stop);
-    JButton refresh = UiStyles.button("Làm mới", "refresh-cw", false);
-    refresh.addActionListener(e -> refresh());
-    controls.add(refresh);
-    panel.add(controls, BorderLayout.SOUTH);
+    panel.add(controls, BorderLayout.EAST);
     return panel;
   }
 
   private JPanel metrics() {
-    JPanel panel = new JPanel(new GridLayout(1, 6, 10, 0));
+    JPanel panel = new JPanel(new GridLayout(1, 3, 14, 0));
     panel.setOpaque(false);
-    String[] labels = {
-      "TÀI KHOẢN", "CLIENT ONLINE", "LƯỢT JOIN HIỆN TẠI", "UNICAST", "GROUP", "BROADCAST"
-    };
-    String[] icons = {"users", "monitor", "network", "user", "message-square", "ethernet-port"};
-    for (int i = 0; i < 6; i++) {
-      JPanel card = UiStyles.card(new BorderLayout(0, 8));
-      JLabel name = new JLabel(labels[i]);
-      name.setForeground(UiStyles.MUTED);
-      name.setFont(name.getFont().deriveFont(Font.BOLD, 11f));
-      card.add(name, BorderLayout.NORTH);
+    String[] labels = {"Tài khoản", "Client online", "Lượt tham gia nhóm"};
+    String[] descriptions = {"Tổng số tài khoản người dùng", "Số client đang kết nối", "Tổng membership của các nhóm"};
+    String[] icons = {"users", "monitor", "network"};
+    for (int i = 0; i < 3; i++) {
+      JPanel card = UiStyles.card(new BorderLayout(18, 0));
+      JLabel icon = new JLabel(IconManager.load(icons[i], 38, 38, i == 1 ? UiStyles.SUCCESS : UiStyles.PRIMARY));
+      icon.setOpaque(true);
+      icon.setBackground(new Color(0xE7F2FF));
+      icon.setPreferredSize(new Dimension(68, 68));
+      icon.setHorizontalAlignment(SwingConstants.CENTER);
+      card.add(icon, BorderLayout.WEST);
+      JPanel text = new JPanel(new BorderLayout(0, 8));
+      text.setOpaque(false);
+      JPanel main = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+      main.setOpaque(false);
       values[i] = UiStyles.title("0", 30);
-      values[i].setIcon(IconManager.load(icons[i], 28, 28, UiStyles.PRIMARY));
-      values[i].setIconTextGap(10);
-      card.add(values[i], BorderLayout.CENTER);
+      main.add(values[i]);
+      main.add(UiStyles.title(labels[i], 16));
+      text.add(main, BorderLayout.CENTER);
+      JLabel description = new JLabel(descriptions[i]);
+      description.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+      description.setForeground(UiStyles.MUTED);
+      text.add(description, BorderLayout.SOUTH);
+      card.add(text, BorderLayout.CENTER);
       panel.add(card);
     }
     return panel;
@@ -167,7 +190,7 @@ public final class ServerFrame extends JFrame {
     JPanel panel = UiStyles.card(new BorderLayout(0, 10));
     JPanel heading = new JPanel(new BorderLayout());
     heading.setOpaque(false);
-    heading.add(UiStyles.title("Phiên online và lịch sử đăng nhập", 17), BorderLayout.WEST);
+    heading.add(sectionTitle("Danh sách người dùng", "users"), BorderLayout.WEST);
     JButton kick = UiStyles.button("Ngắt phiên đã chọn", "log-out", false);
     kick.addActionListener(
         e -> {
@@ -186,39 +209,39 @@ public final class ServerFrame extends JFrame {
             }
           }.execute();
         });
-    heading.add(kick, BorderLayout.EAST);
+    JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+    actions.setOpaque(false);
+    JButton roomList = UiStyles.button("Nhóm", "network", false);
+    roomList.addActionListener(e -> JOptionPane.showMessageDialog(this, new JScrollPane(table(groups)), "Phòng / Nhóm", JOptionPane.PLAIN_MESSAGE));
+    JButton reload = UiStyles.button("Làm mới", "refresh-cw", false);
+    reload.addActionListener(e -> refresh());
+    actions.add(roomList);
+    actions.add(kick);
+    actions.add(reload);
+    heading.add(actions, BorderLayout.EAST);
     panel.add(heading, BorderLayout.NORTH);
     sessionTable.setAutoCreateRowSorter(true);
     sessionTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-    sessionTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
-    int[] widths = {100, 155, 175, 175, 85, 100, 140};
-    for (int i = 0; i < widths.length; i++) {
+    sessionTable.setAutoResizeMode(JTable.AUTO_RESIZE_ALL_COLUMNS);
+    int[] widths = {100, 160, 165, 165, 80, 100, 75};
+    for (int i = 0; i < widths.length; i++)
       sessionTable.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
-      sessionTable.getColumnModel().getColumn(i).setMinWidth(widths[i]);
-    }
-    sessionTable
-        .getColumnModel()
-        .getColumn(6)
-        .setCellRenderer(
-            new DefaultTableCellRenderer() {
-              @Override
-              public Component getTableCellRendererComponent(
-                  JTable table,
-                  Object value,
-                  boolean selected,
-                  boolean focus,
-                  int row,
-                  int column) {
-                JLabel label =
-                    (JLabel)
-                        super.getTableCellRendererComponent(
-                            table, value, selected, focus, row, column);
-                String id = String.valueOf(value);
-                label.setText(id.length() > 8 ? id.substring(0, 8) : id);
-                label.setToolTipText(id);
-                return label;
-              }
-            });
+    sessionTable.getColumnModel().getColumn(6).setCellRenderer(new DefaultTableCellRenderer() {
+      @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
+        JLabel label = (JLabel)super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+        String id = String.valueOf(value);
+        label.setText(id.length() > 8 ? id.substring(0, 8) : id);
+        label.setToolTipText(id);
+        return label;
+      }
+    });
+    sessionTable.getColumnModel().getColumn(4).setCellRenderer(new DefaultTableCellRenderer() {
+      @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus, int row, int column) {
+        JLabel label = (JLabel)super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+        if (!selected) label.setForeground("Online".equals(value) ? UiStyles.SUCCESS : UiStyles.MUTED);
+        return label;
+      }
+    });
     panel.add(new JScrollPane(sessionTable));
     return panel;
   }
@@ -227,7 +250,7 @@ public final class ServerFrame extends JFrame {
     JPanel panel = UiStyles.card(new BorderLayout(0, 10));
     JPanel heading = new JPanel(new BorderLayout(10, 0));
     heading.setOpaque(false);
-    heading.add(UiStyles.title("Nhật ký hoạt động", 18), BorderLayout.WEST);
+    heading.add(sectionTitle("Nhật ký hoạt động", "file-text"), BorderLayout.WEST);
     JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
     tools.setOpaque(false);
     search.putClientProperty("JTextField.placeholderText", "Tìm tài khoản, tin nhắn, IP…");
@@ -337,7 +360,7 @@ public final class ServerFrame extends JFrame {
     state.setBackground(running ? new Color(0xE5F8EC) : new Color(0xFDEBED));
     status.setText(
         running
-            ? "TCP Server lắng nghe cổng " + server.getPort()
+            ? "Đang lắng nghe tại " + localIp() + ":" + server.getPort()
             : starting
                 ? "Đang khởi động server…"
                 : "Server đã dừng • Dữ liệu tài khoản và log được lưu");
@@ -366,7 +389,7 @@ public final class ServerFrame extends JFrame {
             stats.group(),
             stats.broadcast()
           };
-          for (int i = 0; i < 6; i++) values[i].setText(String.valueOf(counts[i]));
+          for (int i = 0; i < 3; i++) values[i].setText(String.valueOf(counts[i]));
           String key = result[1].toString() + result[2] + result[3];
           if (key.equals(snapshotKey)) return;
           snapshotKey = key;
@@ -452,12 +475,23 @@ public final class ServerFrame extends JFrame {
             return row < 0 || column < 0 ? null : String.valueOf(getValueAt(row, column));
           }
         };
-    table.setRowHeight(32);
+    table.setRowHeight(36);
+    table.setShowVerticalLines(false);
+    table.setIntercellSpacing(new Dimension(0, 1));
+    table.getTableHeader().setBackground(new Color(0xE7F2FF));
+    table.setFont(new Font("Segoe UI", Font.PLAIN, 13));
     table.setGridColor(UiStyles.BORDER);
     table.setForeground(UiStyles.NAVY);
     table.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 13));
     table.getTableHeader().setPreferredSize(new Dimension(10, 34));
     return table;
+  }
+
+  private static JLabel sectionTitle(String text, String icon) {
+    JLabel label = UiStyles.title(text, 20);
+    label.setIcon(IconManager.load(icon, 25, 25, UiStyles.PRIMARY));
+    label.setIconTextGap(12);
+    return label;
   }
 
   private static String localIp() {

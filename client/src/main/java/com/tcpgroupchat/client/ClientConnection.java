@@ -28,6 +28,7 @@ public final class ClientConnection implements AutoCloseable {
   private final AtomicBoolean closed = new AtomicBoolean();
   private Consumer<String> disconnected;
   public final String endpoint;
+  public final String localIp;
   public final String username;
   public final String sessionId;
   public final String loginTime;
@@ -43,6 +44,12 @@ public final class ClientConnection implements AutoCloseable {
     this.reader = reader;
     this.writer = writer;
     this.endpoint = endpoint;
+    String address = socket.getLocalAddress().getHostAddress();
+    if (socket.getLocalAddress().isLoopbackAddress()) {
+      try { address = InetAddress.getLocalHost().getHostAddress(); }
+      catch (UnknownHostException ignored) { /* Keep the socket address as fallback. */ }
+    }
+    localIp = address;
     this.username = username;
     sessionId = login.getSessionId();
     loginTime = login.getTimestamp();

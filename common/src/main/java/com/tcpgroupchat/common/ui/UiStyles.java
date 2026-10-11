@@ -5,7 +5,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
 public final class UiStyles {
-  public static final Color NAVY = new Color(0x071B41),
+  public static final Color NAVY = new Color(0x082E63),
       PRIMARY = new Color(0x1477F8),
       BACKGROUND = new Color(0xF5F8FC),
       MUTED = new Color(0x64748B),
@@ -29,7 +29,7 @@ public final class UiStyles {
     b.setForeground(primary ? Color.WHITE : PRIMARY);
     b.setFont(new Font("Segoe UI", Font.BOLD, 14));
     b.setIconTextGap(8);
-    b.setBorder(new EmptyBorder(10, 14, 10, 14));
+    b.setMargin(new Insets(10, 14, 10, 14));
     b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
     return b;
   }
@@ -42,11 +42,20 @@ public final class UiStyles {
   }
 
   public static JPanel card(LayoutManager layout) {
-    JPanel panel = new JPanel(layout);
+    JPanel panel = new JPanel(layout) {
+      @Override protected void paintComponent(Graphics g) {
+        Graphics2D canvas = (Graphics2D) g.create();
+        canvas.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        canvas.setColor(getBackground());
+        canvas.fillRoundRect(0, 0, getWidth()-1, getHeight()-1, 24, 24);
+        canvas.setColor(BORDER);
+        canvas.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 24, 24);
+        canvas.dispose();
+      }
+    };
+    panel.setOpaque(false);
     panel.setBackground(Color.WHITE);
-    panel.setBorder(
-        BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(BORDER), new EmptyBorder(16, 18, 16, 18)));
+    panel.setBorder(new EmptyBorder(16, 18, 16, 18));
     return panel;
   }
 

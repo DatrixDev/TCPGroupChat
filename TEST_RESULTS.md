@@ -29,3 +29,11 @@ Các tình huống đã kiểm tra:
 - Kiểm tra ảnh giao diện kích thước đầy đủ và tối thiểu sau khi chỉnh bố cục.
 
 Phạm vi kiểm tra: chạy trên Linux với Java 17; chưa chạy thực tế trên Windows hoặc hai máy LAN. File `.bat` dành cho Windows dùng hai JAR đã đóng gói; kịch bản LAN nằm trong README.
+
+## Kiểm tra sau khi đổi giao diện theo ảnh mẫu UDPMail
+
+- Maven `clean install` và `package`: thành công; 10 kiểm thử TCP qua.
+- Chạy Swing thật với 5 client: Join/Leave, gửi Group sau Leave, Enter Unicast, Broadcast và vô hiệu hóa gửi khi mất kết nối đều qua.
+- Chụp và kiểm tra client 1300×800 / 1030×650, server 1250×800 / 1200×700; sửa nút bị cắt chữ và bong bóng chat khi thu nhỏ.
+- IP máy client hiển thị góc dưới bên phải; địa chỉ lấy từ socket LAN, hoặc IP máy khi chạy loopback.
+- Chưa kiểm tra trực tiếp trên Windows hoặc hai máy LAN.
