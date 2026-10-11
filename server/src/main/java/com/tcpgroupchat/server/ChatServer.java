@@ -274,6 +274,7 @@ public final class ChatServer {
           log("LOGIN", user + " | phiên " + session.id + " | " + session.address());
           broadcastSystem(user + " đã đăng nhập.");
           publishUsers();
+          for (String group : List.copyOf(groups.keySet())) sendGroupState(session, group, null);
           publishGroup("study");
           return;
         }
@@ -295,6 +296,36 @@ public final class ChatServer {
 
   private void route(ClientSession sender, ChatMessage request) {
     switch (request.getType()) {
+      case "CREATE_GROUP", "ADD_GROUP_MEMBERS" -> {
+        String group = groupName(request.getGroup());
+        boolean create = "CREATE_GROUP".equals(request.getType());
+        Set<String> current = groups.get(group);
+        if (create && current != null) throw new IllegalArgumentException("Tên nhóm đã tồn tại. Hãy chọn tên khác.");
+        if (!create && (current == null || !current.contains(sender.username)))
+          throw new IllegalArgumentException("Bạn cần tham gia nhóm trước khi thêm người.");
+        if (create && groups.size() >= 100) throw new IllegalArgumentException("Đạt giới hạn 100 phòng.");
+        if (request.getUsers() == null || request.getUsers().isEmpty() || request.getUsers().size() > 100)
+          throw new IllegalArgumentException("Hãy chọn từ 1 đến 100 người đang online.");
+        Set<String> selected = new TreeSet<>();
+        for (String name : request.getUsers()) {
+          String user = AccountStore.username(name);
+          if (!clients.containsKey(user)) throw new IllegalArgumentException(user + " không còn online. Hãy chọn lại.");
+          selected.add(user);
+        }
+        // Validate every recipient before changing membership, under the routing lock.
+        if (create) { current = new TreeSet<>(); groups.put(group, current); selected.add(sender.username); }
+        for (String user : selected) {
+          if (current.add(user)) {
+            ChatMessage notice = new ChatMessage("GROUP_ADDED", "SERVER", user, group,
+                sender.username + " đã thêm bạn vào #" + group);
+            clients.get(user).send(notice);
+            log("JOIN", user + " → #" + group + " | được thêm bởi " + sender.username);
+          }
+        }
+        reply(sender, request, create ? "CREATE_GROUP_OK" : "ADD_GROUP_MEMBERS_OK", "Đã cập nhật thành viên #" + group);
+        groupSystem(group, sender.username + (create ? " đã tạo nhóm." : " đã thêm thành viên vào nhóm."));
+        publishGroup(group);
+      }
       case "JOIN_GROUP", "LEAVE_GROUP", "GET_GROUP" -> {
         String group = groupName(request.getGroup());
         Set<String> members = groups.get(group);

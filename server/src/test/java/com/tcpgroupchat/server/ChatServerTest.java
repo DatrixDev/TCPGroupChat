@@ -287,6 +287,32 @@ class ChatServerTest {
     }
   }
 
+  @Test
+  void createGroupWithSelectedPeopleAndAddMembers() throws Exception {
+    Peer[] p = five();
+    ChatMessage create = new ChatMessage("CREATE_GROUP", "forged", null, "project", null);
+    create.setUsers(List.of("client2", "client3", "client2"));
+    p[0].send(create);
+    p[0].next("CREATE_GROUP_OK");
+    p[1].next("GROUP_ADDED");
+    p[2].next("GROUP_ADDED");
+    assertEquals(3, server.getGroups().stream().filter(g -> g.name().equals("project")).findFirst().orElseThrow().count());
+    p[0].message("GROUP_MESSAGE", null, "project", "selected-members");
+    p[0].next("ACK");
+    for (int i = 0; i < 3; i++) assertEquals("selected-members", p[i].next("GROUP_MESSAGE").getContent());
+    p[3].assertNoChat(); p[4].assertNoChat();
+    ChatMessage add = new ChatMessage("ADD_GROUP_MEMBERS", "client4", null, "project", null);
+    add.setUsers(List.of("client5"));
+    p[3].send(add); p[3].next("ERROR");
+    p[0].send(add); p[0].next("ADD_GROUP_MEMBERS_OK"); p[4].next("GROUP_ADDED");
+    p[1].group("LEAVE_GROUP", "project", "LEAVE_OK");
+    assertEquals(3, server.getGroups().stream().filter(g -> g.name().equals("project")).findFirst().orElseThrow().count());
+    p[0].send(create); p[0].next("ERROR");
+    create.setGroup("invalid-selection"); create.setUsers(List.of("client2", "offline"));
+    p[0].send(create); p[0].next("ERROR");
+    assertTrue(server.getGroups().stream().noneMatch(g -> g.name().equals("invalid-selection")));
+  }
+
   class Peer implements AutoCloseable {
     final String name;
     final Socket socket;

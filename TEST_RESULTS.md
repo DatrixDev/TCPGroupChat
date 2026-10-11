@@ -37,3 +37,16 @@ Phạm vi kiểm tra: chạy trên Linux với Java 17; chưa chạy thực tế
 - Chụp và kiểm tra client 1300×800 / 1030×650, server 1250×800 / 1200×700; sửa nút bị cắt chữ và bong bóng chat khi thu nhỏ.
 - IP máy client hiển thị góc dưới bên phải; địa chỉ lấy từ socket LAN, hoặc IP máy khi chạy loopback.
 - Chưa kiểm tra trực tiếp trên Windows hoặc hai máy LAN.
+
+## Kiểm tra tách cuộc trò chuyện
+
+- Danh sách người nhận không chứa chính tài khoản đang đăng nhập.
+- Chuyển giữa ba người nhận không trộn tin riêng, Group hoặc Broadcast.
+- Tin riêng đến khi đang xem người khác không chen vào khung đang mở; chuyển lại đúng người gửi thấy tin.
+- Tin đã gửi và tin đã nhận được giữ khi đổi qua lại trong cùng phiên.
+- Join/Leave ẩn trong chế độ Unicast; kiểm tra Swing với 5 client và 10 kiểm thử TCP qua.
+
+## Chọn người tạo nhóm
+
+- 11 kiểm thử TCP qua: bổ sung tạo nhóm với người được chọn, tự thêm người tạo, loại trùng, thêm người vào nhóm, Leave, từ chối người ngoài nhóm thêm thành viên, trùng tên nhóm và từ chối danh sách có người offline mà không tạo nhóm dở dang.
+- Chạy hộp thoại Swing thật, tick hai người rồi tạo nhóm: server có ba thành viên, các client nhận được nhóm mới, người tạo tự mở cuộc trò chuyện nhóm.
