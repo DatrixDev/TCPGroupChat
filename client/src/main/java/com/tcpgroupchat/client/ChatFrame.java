@@ -34,6 +34,7 @@ public final class ChatFrame extends JFrame {
       refresh = UiStyles.button("Làm mới", "refresh-cw", false);
   private final Map<String, Pending> pending = new HashMap<>();
   private final Set<String> received = new HashSet<>();
+  private final Set<String> leftGroups = new HashSet<>();
   private String activeGroup = "";
   private final DefaultListModel<String> knownGroups = new DefaultListModel<>();
   private final JButton addPeople = UiStyles.button("Thêm người", "users", false);
@@ -159,7 +160,7 @@ public final class ChatFrame extends JFrame {
     roomList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     roomList.setCellRenderer(new DefaultListCellRenderer() {
       @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
-        JLabel label = (JLabel) super.getListCellRendererComponent(list, "#" + value, index, selected, focus);
+        JLabel label = (JLabel) super.getListCellRendererComponent(list, "#" + value + (leftGroups.contains(String.valueOf(value)) ? " · Đã rời nhóm" : ""), index, selected, focus);
         label.setIcon(IconManager.load("users", 18, 18, UiStyles.PRIMARY));
         label.setIconTextGap(10);
         return label;
@@ -301,7 +302,7 @@ public final class ChatFrame extends JFrame {
     chats.addActionListener(e -> { workspaceLayout.show(workspace, "chat"); chats.setBackground(UiStyles.PRIMARY); journal.setBackground(UiStyles.NAVY); });
     rooms.addActionListener(e -> { chats.doClick(); mode.setSelectedIndex(1); groupName.requestFocusInWindow(); });
     journal.addActionListener(e -> { workspaceLayout.show(workspace, "journal"); journal.setBackground(UiStyles.PRIMARY); chats.setBackground(UiStyles.NAVY); });
-    refresh.addActionListener(e -> { request("GET_USERS", null); if (!activeGroup.isEmpty()) request("GET_GROUP", activeGroup); });
+    refresh.addActionListener(e -> { request("GET_USERS", null); if (!activeGroup.isEmpty() && !leftGroups.contains(activeGroup)) request("GET_GROUP", activeGroup); });
     reload.addActionListener(e -> refresh.doClick());
     logout.addActionListener(e -> logout());
     join.setEnabled(false);
@@ -416,7 +417,7 @@ public final class ChatFrame extends JFrame {
     join.setEnabled(false);
     leave.setEnabled(false);
     addPeople.setEnabled(false);
-    request("GET_GROUP", value);
+    if (!leftGroups.contains(value)) request("GET_GROUP", value);
     updateDestination();
   }
 
@@ -425,9 +426,15 @@ public final class ChatFrame extends JFrame {
     recipient.setVisible(mode.getSelectedIndex() == 0);
     if (modeTabs.getSelectedIndex() != mode.getSelectedIndex()) modeTabs.setSelectedIndex(mode.getSelectedIndex());
     boolean groupMode = mode.getSelectedIndex() == 1;
+    boolean hasLeft = leftGroups.contains(activeGroup);
+    boolean canSend = !connection.isClosed() && (!groupMode || (!activeGroup.isEmpty() && !hasLeft));
+    input.setEnabled(canSend);
+    send.setEnabled(canSend);
+    if (hasLeft) groupStatus = "Đã rời nhóm · Chỉ xem tin cũ, không thể gửi tin.";
     if (activeGroup.isEmpty()) groupStatus = "Chọn nhóm trong danh sách hoặc bấm Tạo nhóm.";
     join.setVisible(false);
     leave.setVisible(groupMode);
+    if (hasLeft) { leave.setEnabled(false); addPeople.setEnabled(false); }
     memberChips.setVisible(groupMode);
     addPeople.setVisible(groupMode && isGroupCreator);
     membership.setText(groupMode ? groupStatus : mode.getSelectedIndex() == 2
@@ -457,7 +464,7 @@ public final class ChatFrame extends JFrame {
   }
 
   private void sendText() {
-    if (connection.isClosed()) return;
+    if (connection.isClosed() || (mode.getSelectedIndex() == 1 && leftGroups.contains(activeGroup))) return;
     String text = input.getText().trim();
     if (text.isBlank()) return;
     if (text.length() > 4000) {
@@ -522,6 +529,7 @@ public final class ChatFrame extends JFrame {
       case "GROUP_STATE" -> {
         boolean isMember = message.getJoinedGroups() != null && message.getJoinedGroups().contains(message.getGroup());
         if (!isMember) return;
+        leftGroups.remove(message.getGroup());
         if (message.getGroup() != null && !knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
         if (activeGroup.equals(message.getGroup())) {
           isGroupCreator = connection.username.equals(message.getGroupCreator());
@@ -552,15 +560,16 @@ public final class ChatFrame extends JFrame {
           leave.setEnabled(joined);
           addPeople.setEnabled(joined && isGroupCreator && !connection.isClosed());
           addPeople.setVisible(mode.getSelectedIndex() == 1 && isGroupCreator);
+          updateDestination();
         }
         if (id != null) pending.remove(id);
       }
       case "GROUP_REMOVED" -> {
         String group = message.getGroup();
-        knownGroups.removeElement(group);
-        histories.remove("group:" + group);
+        leftGroups.add(group);
+        if (!knownGroups.contains(group)) knownGroups.addElement(group);
+        workspace.repaint();
         if (group.equals(activeGroup)) {
-          activeGroup = "";
           isGroupCreator = false;
           members.clear();
           memberChips.removeAll();
@@ -572,6 +581,8 @@ public final class ChatFrame extends JFrame {
         log("LEAVE", message.getContent());
       }
       case "GROUP_ADDED" -> {
+        leftGroups.remove(message.getGroup());
+        workspace.repaint();
         if (!knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
         log("GROUP_ADDED", message.getContent());
         appendTo("group:" + message.getGroup(), "HỆ THỐNG", message.getContent());
@@ -610,6 +621,7 @@ public final class ChatFrame extends JFrame {
         log("ACK", message.getContent());
       }
       case "UNICAST", "GROUP_MESSAGE", "BROADCAST" -> {
+        if ("GROUP_MESSAGE".equals(message.getType()) && leftGroups.contains(message.getGroup())) return;
         if (connection.username.equals(message.getSender()) && pending.containsKey(id))
           received.add(id);
         appendTo(conversationKey(message), label(message), message.getSender() + ": " + message.getContent());

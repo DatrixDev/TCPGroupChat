@@ -36,7 +36,6 @@ public final class ChatServer {
   private final Map<String, ClientSession> clients = new TreeMap<>();
   private final Map<String, Set<String>> groups = new TreeMap<>();
   private final Map<String, String> groupCreators = new TreeMap<>();
-  private final Map<String, Set<String>> formerMembers = new TreeMap<>();
   private final Set<ClientSession> connections = new HashSet<>();
   private final Deque<LogEntry> logs = new ArrayDeque<>();
   private final Deque<ClientSession> history = new ArrayDeque<>();
@@ -133,7 +132,6 @@ public final class ChatServer {
     for (ClientSession session : List.copyOf(connections)) disconnect(session, "Server dừng");
     groups.clear();
     groupCreators.clear();
-    formerMembers.clear();
     serverSocket = null;
     log("SERVER_STOP", "Đã đóng toàn bộ kết nối và xóa thành viên nhóm.");
   }
@@ -316,9 +314,8 @@ public final class ChatServer {
           selected.add(user);
         }
         // Validate every recipient before changing membership, under the routing lock.
-        if (create) { current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); formerMembers.put(group, new TreeSet<>()); selected.add(sender.username); }
+        if (create) { current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); selected.add(sender.username); }
         for (String user : selected) {
-          formerMembers.get(group).add(user);
           if (current.add(user)) {
             ChatMessage notice = new ChatMessage("GROUP_ADDED", "SERVER", user, group,
                 sender.username + " đã thêm bạn vào #" + group);
@@ -372,10 +369,9 @@ public final class ChatServer {
           }
           case "GROUP_MESSAGE" -> {
             String group = groupName(request.getGroup());
-            if (!formerMembers.getOrDefault(group, Set.of()).contains(sender.username))
-              throw new IllegalArgumentException("Bạn chưa được thêm vào nhóm này.");
+            if (!groups.getOrDefault(group, Set.of()).contains(sender.username))
+              throw new IllegalArgumentException("Bạn không còn là thành viên nhóm này.");
             Set<String> members = groups.getOrDefault(group, Set.of());
-            // The assignment permits sending after Leave. Membership controls RECEIVING.
             targets = members.stream().map(clients::get).filter(Objects::nonNull).toList();
             if (targets.isEmpty())
               throw new IllegalArgumentException("Nhóm chưa có thành viên online.");

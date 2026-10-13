@@ -2,9 +2,9 @@
 
 - Java 17 Maven build succeeds.
 - 12 real TCP socket tests pass: authentication, routing, private group creation and membership, outsider access rejection, Leave, reconnect, framing and concurrent sends.
-- Private group UI: no sample rooms or room-name input, selected members only, creator-only member management, no public Join, Leave removes the group from the client.
+- Private group UI: no sample rooms or room-name input, selected members only, creator-only member management, no public Join, Leave retains the group and existing local history, marks it as left, and disables sending.
 - Chat history is separated by person, group and Broadcast within the current session.
-- Former members can still send through the TCP protocol for the assignment's send-after-Leave case, but the private-group UI removes the conversation after Leave.
+- Former members cannot send group messages, including direct TCP requests, and do not receive new group messages. Existing history is only retained for the current client session.
 - Windows and multi-machine LAN execution have not been tested in this environment.
 
 ## LAN address selection

@@ -75,7 +75,7 @@ class ChatServerTest {
   }
 
   @Test
-  void fiveClientsGroupAndLeaveMatchAssignment() throws Exception {
+  void fiveClientsGroupAndLeaveBlocksSending() throws Exception {
     Peer[] p = five();
     for (int i = 0; i < 3; i++) p[i].group("JOIN_GROUP", "study", "JOIN_OK");
     p[0].message("GROUP_MESSAGE", null, "study", "Nhóm tiếng Việt");
@@ -85,9 +85,13 @@ class ChatServerTest {
     for (int i = 3; i < 5; i++) p[i].assertNoChat();
     p[0].group("LEAVE_GROUP", "study", "LEAVE_OK");
     p[0].message("GROUP_MESSAGE", null, "study", "Gửi sau Leave");
-    assertTrue(p[0].next("ACK").getContent().contains("2 client"));
+    assertTrue(p[0].next("ERROR").getContent().contains("không còn"));
+    p[1].assertNoChat();
+    p[2].assertNoChat();
+    p[1].message("GROUP_MESSAGE", null, "study", "Thành viên còn lại");
+    p[1].next("ACK");
     for (int i = 1; i < 3; i++)
-      assertEquals("Gửi sau Leave", p[i].next("GROUP_MESSAGE").getContent());
+      assertEquals("Thành viên còn lại", p[i].next("GROUP_MESSAGE").getContent());
     p[0].assertNoChat();
     p[3].assertNoChat();
     p[4].assertNoChat();
