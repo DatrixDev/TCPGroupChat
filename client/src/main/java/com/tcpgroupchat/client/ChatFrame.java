@@ -36,6 +36,7 @@ public final class ChatFrame extends JFrame {
   private final Set<String> displayedMessages = new HashSet<>();
   private final Map<String, String> groupNetworkAddresses = new HashMap<>();
   private final Set<String> leftGroups = new HashSet<>();
+  private final Set<String> joinedGroups = new HashSet<>();
   private String activeGroup = "";
   private final DefaultListModel<String> knownGroups = new DefaultListModel<>();
   private final JButton addPeople = UiStyles.button("Thêm người", "users", false);
@@ -160,7 +161,9 @@ public final class ChatFrame extends JFrame {
     roomList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     roomList.setCellRenderer(new DefaultListCellRenderer() {
       @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean selected, boolean focus) {
-        JLabel label = (JLabel) super.getListCellRendererComponent(list, "#" + value + (leftGroups.contains(String.valueOf(value)) ? " · Đã rời nhóm" : ""), index, selected, focus);
+        String group = String.valueOf(value);
+        String state = joinedGroups.contains(group) ? "" : leftGroups.contains(group) ? " · Đã rời nhóm" : " · Chưa tham gia";
+        JLabel label = (JLabel) super.getListCellRendererComponent(list, "#" + value + state, index, selected, focus);
         label.setIcon(IconManager.load("users", 18, 18, UiStyles.PRIMARY));
         label.setIconTextGap(10);
         return label;
@@ -229,7 +232,7 @@ public final class ChatFrame extends JFrame {
     leave.setForeground(UiStyles.ERROR);
     addPeople.addActionListener(e -> chooseGroupMembers(false));
     addPeople.setToolTipText("Chọn người để thêm ngay vào nhóm");
-    // Membership is assigned by the creator; no public Join control.
+    membershipActions.add(join);
     membershipActions.add(leave);
     chatHeader.add(membershipActions, BorderLayout.EAST);
     memberChips.setOpaque(false);
@@ -371,29 +374,33 @@ public final class ChatFrame extends JFrame {
     name.setEditable(create);
     name.putClientProperty("JTextField.placeholderText", "Tên nhóm: chữ không dấu, số, _ hoặc -");
     form.add(UiStyles.field("Tên nhóm", name), BorderLayout.NORTH);
-    JPanel choices = new JPanel();
-    choices.setLayout(new BoxLayout(choices, BoxLayout.Y_AXIS));
     java.util.List<JCheckBox> checks = new ArrayList<>();
-    for (int i = 0; i < users.size(); i++) {
-      String user = users.get(i);
-      if (!create && members.contains(user)) continue;
-      JCheckBox check = new JCheckBox(user);
-      checks.add(check);
-      choices.add(check);
+    if (!create) {
+      JPanel choices = new JPanel();
+      choices.setLayout(new BoxLayout(choices, BoxLayout.Y_AXIS));
+      for (int i = 0; i < users.size(); i++) {
+        String user = users.get(i);
+        if (members.contains(user)) continue;
+        JCheckBox check = new JCheckBox(user);
+        checks.add(check);
+        choices.add(check);
+      }
+      if (checks.isEmpty()) {
+        JOptionPane.showMessageDialog(this, "Chưa có người online phù hợp để thêm vào nhóm.");
+        return;
+      }
+      JScrollPane scroll = new JScrollPane(choices);
+      scroll.setPreferredSize(new Dimension(350, 220));
+      form.add(scroll, BorderLayout.CENTER);
     }
-    if (checks.isEmpty()) {
-      JOptionPane.showMessageDialog(this, "Chưa có người online phù hợp để thêm vào nhóm.");
-      return;
-    }
-    JScrollPane scroll = new JScrollPane(choices);
-    scroll.setPreferredSize(new Dimension(350, 220));
-    form.add(scroll, BorderLayout.CENTER);
-    form.add(new JLabel(create ? "Bạn và những người được chọn sẽ vào nhóm ngay." : "Người được chọn sẽ vào nhóm ngay."), BorderLayout.SOUTH);
+    form.add(new JLabel(create ? "Nhóm công khai: người đang online có thể bấm Join để tham gia." : "Người được chọn sẽ vào nhóm ngay."), BorderLayout.SOUTH);
     while (JOptionPane.showConfirmDialog(this, form, create ? "Tạo nhóm" : "Thêm người vào nhóm", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
       String group = name.getText().trim().toLowerCase(Locale.ROOT);
       java.util.List<String> selected = checks.stream().filter(JCheckBox::isSelected).map(JCheckBox::getText).toList();
-      if (!group.matches("[a-z0-9_-]{1,30}") || selected.isEmpty()) {
-        JOptionPane.showMessageDialog(this, "Nhập tên nhóm hợp lệ và chọn ít nhất một người.");
+      if (!group.matches("[a-z0-9_-]{1,30}") || (!create && selected.isEmpty())) {
+        JOptionPane.showMessageDialog(this, create
+            ? "Tên nhóm cần 1–30 ký tự: chữ không dấu, số, _ hoặc -."
+            : "Nhập tên nhóm hợp lệ và chọn ít nhất một người.");
         continue;
       }
       ChatMessage request = ChatMessage.of(create ? "CREATE_GROUP" : "ADD_GROUP_MEMBERS", connection.username, null);
@@ -421,7 +428,7 @@ public final class ChatFrame extends JFrame {
     join.setEnabled(false);
     leave.setEnabled(false);
     addPeople.setEnabled(false);
-    if (!leftGroups.contains(value)) request("GET_GROUP", value);
+    request("GET_GROUP", value);
     updateDestination();
   }
 
@@ -431,14 +438,17 @@ public final class ChatFrame extends JFrame {
     if (modeTabs.getSelectedIndex() != mode.getSelectedIndex()) modeTabs.setSelectedIndex(mode.getSelectedIndex());
     boolean groupMode = mode.getSelectedIndex() == 1;
     boolean hasLeft = leftGroups.contains(activeGroup);
-    boolean canSend = !connection.isClosed() && (!groupMode || (!activeGroup.isEmpty() && !hasLeft));
+    boolean joined = joinedGroups.contains(activeGroup);
+    boolean canSend = !connection.isClosed() && (!groupMode || (!activeGroup.isEmpty() && joined));
     input.setEnabled(canSend);
     send.setEnabled(canSend);
     if (hasLeft) groupStatus = "Đã rời nhóm · Chỉ xem tin cũ, không thể gửi tin.";
     if (activeGroup.isEmpty()) groupStatus = "Chọn nhóm trong danh sách hoặc bấm Tạo nhóm.";
-    join.setVisible(false);
-    leave.setVisible(groupMode);
-    if (hasLeft) { leave.setEnabled(false); addPeople.setEnabled(false); }
+    join.setVisible(groupMode && !activeGroup.isEmpty() && !joined);
+    join.setEnabled(groupMode && !activeGroup.isEmpty() && !joined && !connection.isClosed());
+    leave.setVisible(groupMode && joined);
+    leave.setEnabled(groupMode && joined && !connection.isClosed());
+    if (!joined) addPeople.setEnabled(false);
     memberChips.setVisible(groupMode);
     addPeople.setVisible(groupMode && isGroupCreator);
     membership.setText(groupMode ? groupStatus : mode.getSelectedIndex() == 2
@@ -539,9 +549,13 @@ public final class ChatFrame extends JFrame {
         if (message.getGroupIp() != null)
           groupNetworkAddresses.put(message.getGroup(), message.getGroupIp() + ":" + message.getGroupPort());
         boolean isMember = message.getJoinedGroups() != null && message.getJoinedGroups().contains(message.getGroup());
-        if (!isMember) return;
-        leftGroups.remove(message.getGroup());
         if (message.getGroup() != null && !knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
+        if (isMember) {
+          joinedGroups.add(message.getGroup());
+          leftGroups.remove(message.getGroup());
+        } else {
+          joinedGroups.remove(message.getGroup());
+        }
         if (activeGroup.equals(message.getGroup())) {
           isGroupCreator = connection.username.equals(message.getGroupCreator());
           members.clear();
@@ -577,6 +591,7 @@ public final class ChatFrame extends JFrame {
       }
       case "GROUP_REMOVED" -> {
         String group = message.getGroup();
+        joinedGroups.remove(group);
         leftGroups.add(group);
         if (!knownGroups.contains(group)) knownGroups.addElement(group);
         workspace.repaint();
@@ -592,6 +607,7 @@ public final class ChatFrame extends JFrame {
         log("LEAVE", message.getContent());
       }
       case "GROUP_ADDED" -> {
+        joinedGroups.add(message.getGroup());
         leftGroups.remove(message.getGroup());
         workspace.repaint();
         if (!knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());

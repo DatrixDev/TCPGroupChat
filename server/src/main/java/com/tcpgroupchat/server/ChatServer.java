@@ -330,7 +330,8 @@ public final class ChatServer {
           log("LOGIN", user + " | phiên " + session.id + " | " + session.address());
           broadcastSystem(user + " đã đăng nhập.");
           publishUsers();
-          for (String group : joined(user)) sendGroupState(session, group, null);
+          // Public rooms are announced to every logged-in client. Only members join the multicast address.
+          for (String group : groups.keySet()) sendGroupState(session, group, null);
           return;
         }
         if (session.username == null) throw new IllegalArgumentException("Hãy đăng nhập trước.");
@@ -359,16 +360,18 @@ public final class ChatServer {
         if (!create && (current == null || !current.contains(sender.username) || !sender.username.equals(groupCreators.get(group))))
           throw new IllegalArgumentException("Chỉ người tạo nhóm đang ở trong nhóm mới được thêm người.");
         if (create && groups.size() >= 100) throw new IllegalArgumentException("Đạt giới hạn 100 phòng.");
-        if (request.getUsers() == null || request.getUsers().isEmpty() || request.getUsers().size() > 100)
-          throw new IllegalArgumentException("Hãy chọn từ 1 đến 100 người đang online.");
+        if (!create && (request.getUsers() == null || request.getUsers().isEmpty()))
+          throw new IllegalArgumentException("Hãy chọn ít nhất một người đang online.");
+        if (request.getUsers() != null && request.getUsers().size() > 100)
+          throw new IllegalArgumentException("Chỉ được chọn tối đa 100 người.");
         Set<String> selected = new TreeSet<>();
-        for (String name : request.getUsers()) {
+        for (String name : request.getUsers() == null ? List.<String>of() : request.getUsers()) {
           String user = AccountStore.username(name);
           if (!clients.containsKey(user)) throw new IllegalArgumentException(user + " không còn online. Hãy chọn lại.");
           selected.add(user);
         }
         // Validate every recipient before changing membership, under the routing lock.
-        if (create) { groupIps.put(group, "239.255.1." + nextGroupIp++); current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); selected.add(sender.username); }
+        if (create) { groupIps.put(group, "235.1.1." + nextGroupIp++); current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); selected.add(sender.username); }
         for (String user : selected) {
           if (current.add(user)) {
             ChatMessage notice = new ChatMessage("GROUP_ADDED", "SERVER", user, group,
@@ -385,14 +388,17 @@ public final class ChatServer {
         String group = groupName(request.getGroup());
         Set<String> members = groups.get(group);
         if ("GET_GROUP".equals(request.getType())) {
-          if (members == null || !members.contains(sender.username)) throw new IllegalArgumentException("Bạn không phải thành viên nhóm.");
+          if (members == null) throw new IllegalArgumentException("Nhóm không tồn tại.");
           sendGroupState(sender, group, request);
           return;
         }
         if ("JOIN_GROUP".equals(request.getType())) {
-          if (members == null || !members.contains(sender.username))
-            throw new IllegalArgumentException("Nhóm riêng tư: cần được người tạo nhóm thêm vào.");
-          reply(sender, request, "JOIN_OK", "Bạn đã ở trong #" + group);
+          if (members == null) throw new IllegalArgumentException("Nhóm không tồn tại.");
+          if (members.add(sender.username)) {
+            log("JOIN", sender.username + " → #" + group + " | tự tham gia");
+            groupSystem(group, sender.username + " đã Join nhóm.");
+          }
+          reply(sender, request, "JOIN_OK", "Đã Join #" + group);
         } else {
           if (members == null || !members.remove(sender.username)) throw new IllegalArgumentException("Bạn chưa tham gia nhóm.");
           reply(sender, request, "LEAVE_OK", "Đã Leave #" + group);
@@ -513,10 +519,8 @@ public final class ChatServer {
   }
 
   private void publishGroup(String group) {
-    for (String user : List.copyOf(groups.getOrDefault(group, Set.of()))) {
-      ClientSession session = clients.get(user);
-      if (session != null) sendGroupState(session, group, null);
-    }
+    // Everyone sees public rooms; joinedGroups tells each client whether it may send/receive.
+    clients.values().forEach(session -> sendGroupState(session, group, null));
   }
 
   private void groupSystem(String group, String content) {

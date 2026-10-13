@@ -319,21 +319,23 @@ class ChatServerTest {
   }
 
   @Test
-  void privateGroupsHideMembershipAndRejectUninvitedJoin() throws Exception {
+  void publicGroupsAreVisibleAndAllowSelfJoin() throws Exception {
     Peer owner = client("owner"), member = client("member"), stranger = client("stranger");
     ChatMessage create = new ChatMessage("CREATE_GROUP", "owner", null, "private", null);
     create.setUsers(List.of("member"));owner.send(create);owner.next("CREATE_GROUP_OK");member.next("GROUP_ADDED");
-    stranger.message("PING", null, null, null);stranger.next("PONG");
-    assertTrue(stranger.inbox.stream().noneMatch(m -> "GROUP_STATE".equals(m.getType()) || "GROUP_ADDED".equals(m.getType())));
-    stranger.group("GET_GROUP", "private", "ERROR");
-    stranger.group("JOIN_GROUP", "private", "ERROR");
+    ChatMessage visible = stranger.next("GROUP_STATE");
+    assertEquals("private", visible.getGroup());
+    assertFalse(visible.getJoinedGroups().contains("private"));
+    stranger.group("GET_GROUP", "private", "GROUP_STATE");
     stranger.message("GROUP_MESSAGE", null, "private", "unauthorized");stranger.next("ERROR");
+    stranger.group("JOIN_GROUP", "private", "JOIN_OK");
+    assertEquals(3, server.getGroups().get(0).count());
+    stranger.message("GROUP_MESSAGE", null, "private", "joined");stranger.next("ACK");
     ChatMessage add = new ChatMessage("ADD_GROUP_MEMBERS", "member", null, "private", null);
     add.setUsers(List.of("stranger"));member.send(add);member.next("ERROR");
     member.group("LEAVE_GROUP", "private", "LEAVE_OK");member.next("GROUP_REMOVED");
-    member.group("GET_GROUP", "private", "ERROR");member.group("JOIN_GROUP", "private", "ERROR");
-    owner.send(add);owner.next("ADD_GROUP_MEMBERS_OK");stranger.next("GROUP_ADDED");
-    assertEquals(2, server.getGroups().get(0).count());
+    member.group("GET_GROUP", "private", "GROUP_STATE");member.group("JOIN_GROUP", "private", "JOIN_OK");
+    assertEquals(3, server.getGroups().get(0).count());
   }
 
   class Peer implements AutoCloseable {
@@ -362,16 +364,12 @@ class ChatServerTest {
     }
 
     void group(String type, String group, String expected) throws Exception {
-      // Existing routing tests provision membership through the private-group creator first.
+      // Existing routing tests create the room when the first peer joins it.
       if ("JOIN_GROUP".equals(type) && "JOIN_OK".equals(expected)) {
-        Peer creator = fixtureCreators.get(group);
-        if (creator == null) {
+        if (server.getGroups().stream().noneMatch(g -> g.name().equals(group))) {
           ChatMessage create = new ChatMessage("CREATE_GROUP", name, null, group, null);
-          create.setUsers(List.of(name));
-          send(create); next("CREATE_GROUP_OK"); fixtureCreators.put(group, this);
-        } else if (!server.getGroups().stream().anyMatch(g -> g.name().equals(group) && Arrays.asList(g.members().split(", ")).contains(name))) {
-          ChatMessage add = new ChatMessage("ADD_GROUP_MEMBERS", creator.name, null, group, null);
-          add.setUsers(List.of(name));creator.send(add);creator.next("ADD_GROUP_MEMBERS_OK");
+          create.setUsers(List.of());
+          send(create); next("CREATE_GROUP_OK");
         }
       }
       send(new ChatMessage(type, name, null, group, null));

@@ -65,13 +65,13 @@ class UdpChatTest {
     Peer owner=peer("owner"), member=peer("member"), other=peer("other");
     owner.next("UDP_READY");member.next("UDP_READY");other.next("UDP_READY");
     ChatMessage a=new ChatMessage("CREATE_GROUP","owner",null,"room_a",null);a.setUsers(List.of("member"));owner.send(a);owner.next("CREATE_GROUP_OK");
-    String ipA=member.next("GROUP_STATE").getGroupIp();owner.next("GROUP_STATE");
+    String ipA=member.nextGroupState("room_a").getGroupIp();owner.nextGroupState("room_a");
     ChatMessage b=new ChatMessage("CREATE_GROUP","owner",null,"room_b",null);b.setUsers(List.of("other"));owner.send(b);owner.next("CREATE_GROUP_OK");
-    String ipB=other.next("GROUP_STATE").getGroupIp();owner.next("GROUP_STATE");assertNotEquals(ipA,ipB);
+    String ipB=other.nextGroupState("room_b").getGroupIp();owner.nextGroupState("room_b");assertNotEquals(ipA,ipB);
     owner.chat("GROUP_MESSAGE",null,"room_a","Only A");owner.next("ACK");owner.next("GROUP_MESSAGE");member.next("GROUP_MESSAGE");other.noChat();
     member.send(new ChatMessage("LEAVE_GROUP","member",null,"room_a",null));member.next("GROUP_REMOVED");owner.next("GROUP_STATE");
     ChatMessage add=new ChatMessage("ADD_GROUP_MEMBERS","owner",null,"room_a",null);add.setUsers(List.of("member"));owner.send(add);owner.next("ADD_GROUP_MEMBERS_OK");
-    assertEquals(ipA,member.next("GROUP_STATE").getGroupIp());owner.next("GROUP_STATE");
+    assertEquals(ipA,member.nextGroupState("room_a").getGroupIp());owner.nextGroupState("room_a");
     owner.chat("GROUP_MESSAGE",null,"room_a","Joined again");owner.next("ACK");owner.next("GROUP_MESSAGE");assertEquals("Joined again",member.next("GROUP_MESSAGE").getContent());other.noChat();
     member.send(new ChatMessage("UNICAST","forged-user","owner",null,"identity"));member.next("ACK");assertEquals("member",owner.next("UNICAST").getSender());
   }
@@ -93,6 +93,14 @@ class UdpChatTest {
         if("DISCONNECTED".equals(m.getType()))fail(m.getContent());
         if(type.equals(m.getType()))return m;saved.add(m);}
       fail("No "+type+" for "+connection.username+"; saved="+saved.stream().map(ChatMessage::getType).toList());return null;
+    }
+    ChatMessage nextGroupState(String group) throws Exception {
+      long end=System.currentTimeMillis()+4000;
+      while(System.currentTimeMillis()<end){
+        ChatMessage message=next("GROUP_STATE");
+        if(group.equals(message.getGroup()))return message;
+      }
+      fail("No GROUP_STATE for "+group+" and "+connection.username);return null;
     }
     void noChat() throws Exception {
       for(ChatMessage m:saved)assertFalse(UdpPackets.isChat(m.getType()),m.getType());saved.clear();
