@@ -68,7 +68,6 @@ public final class ChatServer {
         });
   }
 
-  /** Binds before entering the accept loop. Run this method outside the Swing EDT. */
   public void start(int port) throws IOException {
     if (port < 0 || port > 65535)
       throw new IllegalArgumentException("Cổng cần nằm trong khoảng 1–65535.");

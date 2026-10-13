@@ -10,7 +10,6 @@ import java.util.*;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-/** Server-owned accounts. Passwords are salted PBKDF2 hashes, never written to logs. */
 public final class AccountStore {
   private static final int ITERATIONS = 120_000;
   private final Path root;

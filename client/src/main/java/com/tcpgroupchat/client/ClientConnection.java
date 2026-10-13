@@ -10,9 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-/**
- * All socket work runs outside Swing. Login reads exactly one frame, leaving later events queued.
- */
+
 public final class ClientConnection implements AutoCloseable {
   private final ObjectMapper mapper = new ObjectMapper();
   private final Socket socket;
