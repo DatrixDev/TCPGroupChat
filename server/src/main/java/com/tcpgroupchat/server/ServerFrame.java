@@ -31,7 +31,7 @@ public final class ServerFrame extends JFrame {
           "Trạng thái",
           "Nhóm",
           "Mã phiên");
-  private final DefaultTableModel groups = model("Nhóm", "Thành viên", "Danh sách nhận tin");
+  private final DefaultTableModel groups = model("Nhóm", "IP Multicast", "Cổng UDP", "Thành viên", "Danh sách nhận tin");
   private final DefaultTableModel logs = model("Thời gian", "Sự kiện", "Thông tin");
   private final JTable sessionTable = table(sessions), logTable = table(logs);
   private final JTextField search = new JTextField(12);
@@ -70,8 +70,8 @@ public final class ServerFrame extends JFrame {
     port = new JSpinner(new SpinnerNumberModel(initialPort, 1, 65535, 1));
     port.setEditor(new JSpinner.NumberEditor(port, "0"));
     setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-    setSize(1250, 800);
-    setMinimumSize(new Dimension(1200, 700));
+    setSize(1250, 900);
+    setMinimumSize(new Dimension(1200, 800));
     setLocationRelativeTo(null);
     setIconImage(IconManager.image("network", 32, 32, UiStyles.PRIMARY));
     JPanel root = new JPanel(new BorderLayout(0, 16));
@@ -83,7 +83,7 @@ public final class ServerFrame extends JFrame {
     center.setOpaque(false);
     center.add(metrics(), BorderLayout.NORTH);
     JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, sessionCard(), logCard());
-    split.setResizeWeight(.52);
+    split.setResizeWeight(.63);
     split.setDividerSize(12);
     split.setBorder(null);
     split.setOpaque(false);
@@ -253,6 +253,12 @@ public final class ServerFrame extends JFrame {
       }
     });
     panel.add(new JScrollPane(sessionTable));
+    JPanel groupNetwork = new JPanel(new BorderLayout(0, 6));
+    groupNetwork.setOpaque(false);
+    groupNetwork.add(UiStyles.title("Địa chỉ IP các nhóm Multicast", 14), BorderLayout.NORTH);
+    groupNetwork.add(new JScrollPane(table(groups)), BorderLayout.CENTER);
+    groupNetwork.setPreferredSize(new Dimension(10, 105));
+    panel.add(groupNetwork, BorderLayout.SOUTH);
     return panel;
   }
 
@@ -320,6 +326,7 @@ public final class ServerFrame extends JFrame {
         new Thread(
             () -> {
               try {
+                server.configureUdp(localIp());
                 server.start(selected);
               } catch (Exception e) {
                 SwingUtilities.invokeLater(
@@ -365,12 +372,14 @@ public final class ServerFrame extends JFrame {
     start.setEnabled(!running && !starting && !stopping);
     stop.setEnabled(running && !stopping);
     port.setEnabled(!running && !starting && !stopping);
+    addresses.setEnabled(!running && !starting && !stopping);
     state.setText(running ? "ĐANG HOẠT ĐỘNG" : starting ? "ĐANG KHỞI ĐỘNG" : "ĐÃ DỪNG");
     state.setForeground(running ? UiStyles.SUCCESS : UiStyles.ERROR);
     state.setBackground(running ? new Color(0xE5F8EC) : new Color(0xFDEBED));
     status.setText(
         running
-            ? "Đang lắng nghe tại " + localIp() + ":" + server.getPort()
+            ? "TCP " + localIp() + ":" + server.getPort() + "  ·  UDP " + server.getUdpPort()
+                + "  ·  Broadcast " + server.getBroadcastIp() + ":" + server.getGroupPort()
             : starting
                 ? "Đang khởi động server…"
                 : "Server đã dừng • Dữ liệu tài khoản và log được lưu");
@@ -429,7 +438,7 @@ public final class ServerFrame extends JFrame {
               }
           groups.setRowCount(0);
           for (ChatServer.GroupInfo g : (List<ChatServer.GroupInfo>) result[2])
-            groups.addRow(new Object[] {g.name(), g.count(), g.members()});
+            groups.addRow(new Object[] {g.name(), g.ip(), g.port(), g.count(), g.members()});
           logs.setRowCount(0);
           List<ChatServer.LogEntry> entries = (List<ChatServer.LogEntry>) result[3];
           for (int i = entries.size() - 1; i >= 0; i--) {

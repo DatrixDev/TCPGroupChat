@@ -15,6 +15,8 @@ public class ChatMessage {
   private String group;
   private String groupCreator;
   private String content;
+  private String groupIp, broadcastIp, networkIp;
+  private int udpPort, groupPort;
 
   public ChatMessage() {}
 
@@ -121,6 +123,17 @@ public class ChatMessage {
   public void setGroup(String group) {
     this.group = group;
   }
+
+  public String getGroupIp() { return groupIp; }
+  public void setGroupIp(String value) { groupIp = value; }
+  public String getBroadcastIp() { return broadcastIp; }
+  public void setBroadcastIp(String value) { broadcastIp = value; }
+  public String getNetworkIp() { return networkIp; }
+  public void setNetworkIp(String value) { networkIp = value; }
+  public int getUdpPort() { return udpPort; }
+  public void setUdpPort(int value) { udpPort = value; }
+  public int getGroupPort() { return groupPort; }
+  public void setGroupPort(int value) { groupPort = value; }
 
   public String getContent() {
     return content;

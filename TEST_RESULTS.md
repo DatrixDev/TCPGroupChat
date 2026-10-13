@@ -1,15 +1,8 @@
 # Validation
 
-- Java 17 Maven build succeeds.
-- 12 real TCP socket tests pass: authentication, routing, private group creation and membership, outsider access rejection, Leave, reconnect, framing and concurrent sends.
-- Private group UI: no sample rooms or room-name input, selected members only, creator-only member management, no public Join, Leave retains the group and existing local history, marks it as left, and disables sending.
-- Chat history is separated by person, group and Broadcast within the current session.
-- Former members cannot send group messages, including direct TCP requests, and do not receive new group messages. Existing history is only retained for the current client session.
-- Windows and multi-machine LAN execution have not been tested in this environment.
-
-## LAN address selection
-
-- Enumerate IPv4 addresses on active network adapters; exclude APIPA (169.254/16), loopback, wildcard and IPv6 addresses from LAN choices.
-- Prefer Wi-Fi and Ethernet over virtual adapters; the server IP dropdown allows another available address to be selected. Its tooltip identifies the adapter.
-- The selected address is a connection address for display; the TCP server still listens on all local interfaces.
-- Two additional tests cover address exclusion and physical/virtual adapter priority. Windows adapter selection still needs verification on the target machine.
+- Java 17 Maven clean install and package succeed.
+- 16 tests pass: 12 TCP protocol/lifecycle tests, 2 LAN-address tests and 2 integration tests with actual application UDP transports.
+- UDP integration covers Unicast to one recipient, multicast to three of five clients, Leave stopping receipt and rejecting sends, Broadcast to all five, independent multicast group IPs, adding a member again, UDP readiness and sender identity. No tests are skipped.
+- Swing smoke check with five clients covers real UDP delivery, no duplicate sender bubble when UDP and TCP ACK arrive in either order, visible group IP, old history after Leave, private UDP, Broadcast, and full/minimum layouts.
+- Checked on Linux in this environment. Windows and separate computers on a LAN still require a deployment check.
+- Group history remains in the current client session only. UDP delivery is not guaranteed; ACK means the server sent/queued the packet, not that it was received/read.

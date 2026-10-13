@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcpgroupchat.common.protocol.ChatMessage;
 import com.tcpgroupchat.common.protocol.JsonLines;
 import com.tcpgroupchat.common.net.LocalAddresses;
+import com.tcpgroupchat.common.net.UdpPackets;
+import com.tcpgroupchat.client.net.UdpClientTransport;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +35,9 @@ public final class ClientConnection implements AutoCloseable {
   public final String username;
   public final String sessionId;
   public final String loginTime;
+  public final String broadcastIp;
+  public final int groupPort;
+  private final UdpClientTransport udp;
 
   private ClientConnection(
       Socket socket,
@@ -40,24 +45,28 @@ public final class ClientConnection implements AutoCloseable {
       BufferedWriter writer,
       String endpoint,
       String username,
-      ChatMessage login) {
+      ChatMessage login, DatagramSocket udpSocket) throws IOException {
     this.socket = socket;
     this.reader = reader;
     this.writer = writer;
     this.endpoint = endpoint;
     String address = socket.getLocalAddress().getHostAddress();
     if (socket.getLocalAddress().isLoopbackAddress()) {
-      address = LocalAddresses.preferredIp();
+      address = login.getNetworkIp() == null ? LocalAddresses.preferredIp() : login.getNetworkIp();
     }
     localIp = address;
     this.username = username;
     sessionId = login.getSessionId();
     loginTime = login.getTimestamp();
+    broadcastIp = login.getBroadcastIp();
+    groupPort = login.getGroupPort();
+    udp = udpSocket == null ? null : new UdpClientTransport(udpSocket, login, localIp);
   }
 
   public static ClientConnection open(
       String host, int port, String user, String password, boolean register) throws IOException {
     Socket socket = new Socket();
+    DatagramSocket udpSocket = null;
     try {
       socket.connect(new InetSocketAddress(host, port), 4000);
       socket.setSoTimeout(10_000);
@@ -71,6 +80,7 @@ public final class ClientConnection implements AutoCloseable {
       ObjectMapper mapper = new ObjectMapper();
       ChatMessage request = ChatMessage.of(register ? "REGISTER" : "LOGIN", user, null);
       request.setPassword(password);
+      if (!register) { udpSocket = new DatagramSocket(); request.setUdpPort(udpSocket.getLocalPort()); }
       writer.write(mapper.writeValueAsString(request));
       writer.newLine();
       writer.flush();
@@ -87,15 +97,20 @@ public final class ClientConnection implements AutoCloseable {
           writer,
           host + ":" + port,
           user.trim().toLowerCase(java.util.Locale.ROOT),
-          response);
+          response, udpSocket);
     } catch (IOException | RuntimeException e) {
       socket.close();
+      if (udpSocket != null) udpSocket.close();
       throw e;
     }
   }
 
   public void listen(Consumer<ChatMessage> received, Consumer<String> disconnected) {
     this.disconnected = disconnected;
+    if (udp != null) {
+      udp.start(received);
+      send(ChatMessage.of("UDP_HELLO", username, null));
+    }
     Thread receiver =
         new Thread(
             () -> {
@@ -104,6 +119,13 @@ public final class ClientConnection implements AutoCloseable {
                 String line;
                 while (!closed.get() && (line = JsonLines.read(reader)) != null) {
                   ChatMessage message = mapper.readValue(line, ChatMessage.class);
+                  if (udp != null && message != null) {
+                    if ("GROUP_STATE".equals(message.getType()) && message.getJoinedGroups() != null
+                        && message.getJoinedGroups().contains(message.getGroup()))
+                      udp.join(message.getGroup(), message.getGroupIp());
+                    if ("GROUP_REMOVED".equals(message.getType()) || "LEAVE_OK".equals(message.getType()))
+                      udp.leave(message.getGroup());
+                  }
                   received.accept(message);
                 }
               } catch (IOException e) {
@@ -125,9 +147,13 @@ public final class ClientConnection implements AutoCloseable {
       sender.execute(
           () -> {
             try {
-              writer.write(mapper.writeValueAsString(message));
-              writer.newLine();
-              writer.flush();
+              if (udp != null && (UdpPackets.isChat(message.getType()) || "UDP_HELLO".equals(message.getType()))) {
+                udp.send(message);
+              } else {
+                writer.write(mapper.writeValueAsString(message));
+                writer.newLine();
+                writer.flush();
+              }
             } catch (IOException e) {
               boolean notify = !closed.get();
               close();
@@ -150,6 +176,7 @@ public final class ClientConnection implements AutoCloseable {
       socket.close();
     } catch (IOException ignored) {
     }
+    if (udp != null) udp.close();
     sender.shutdownNow();
   }
 }

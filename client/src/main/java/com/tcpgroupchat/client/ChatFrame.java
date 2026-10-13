@@ -33,7 +33,8 @@ public final class ChatFrame extends JFrame {
       applyGroup = UiStyles.button("Xem nhóm", "hash", false),
       refresh = UiStyles.button("Làm mới", "refresh-cw", false);
   private final Map<String, Pending> pending = new HashMap<>();
-  private final Set<String> received = new HashSet<>();
+  private final Set<String> displayedMessages = new HashSet<>();
+  private final Map<String, String> groupNetworkAddresses = new HashMap<>();
   private final Set<String> leftGroups = new HashSet<>();
   private String activeGroup = "";
   private final DefaultListModel<String> knownGroups = new DefaultListModel<>();
@@ -83,7 +84,6 @@ public final class ChatFrame extends JFrame {
                 var entry = iterator.next();
                 if (System.currentTimeMillis() - entry.getValue().time() > 15_000) {
                   log("TIMEOUT", "Chưa nhận xác nhận cho yêu cầu " + entry.getKey());
-                  received.remove(entry.getKey());
                   iterator.remove();
                 }
               }
@@ -238,6 +238,10 @@ public final class ChatFrame extends JFrame {
     groupDetails.setOpaque(false);
     groupDetails.add(memberChips, BorderLayout.CENTER);
     groupDetails.add(addPeople, BorderLayout.EAST);
+    destination.setForeground(UiStyles.PRIMARY);
+    destination.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+    destination.setBorder(new EmptyBorder(8, 0, 0, 0));
+    groupDetails.add(destination, BorderLayout.SOUTH);
     chatHeader.add(groupDetails, BorderLayout.SOUTH);
     chat.add(chatHeader, BorderLayout.NORTH);
     bubbles.setLayout(new BoxLayout(bubbles, BoxLayout.Y_AXIS));
@@ -455,6 +459,11 @@ public final class ChatFrame extends JFrame {
       bubbles.repaint();
       SwingUtilities.invokeLater(() -> bubbleScroll.getVerticalScrollBar().setValue(bubbleScroll.getVerticalScrollBar().getMaximum()));
     }
+    destination.setText(switch (mode.getSelectedIndex()) {
+      case 0 -> "UDP Unicast · Người nhận: " + recipient.getText().trim();
+      case 1 -> "IP Multicast: " + groupNetworkAddresses.getOrDefault(activeGroup, "Chưa chọn nhóm");
+      default -> "IP Broadcast: " + connection.broadcastIp + ":" + connection.groupPort;
+    });
     chatTitle.setToolTipText(mode.getSelectedIndex() == 1 ? "Nhóm #" + activeGroup : recipient.getText());
     chatTitle.setText(switch (mode.getSelectedIndex()) {
       case 0 -> recipient.getText().isBlank() ? "Chọn người để chat" : recipient.getText().trim();
@@ -527,6 +536,8 @@ public final class ChatFrame extends JFrame {
         updateDestination();
       }
       case "GROUP_STATE" -> {
+        if (message.getGroupIp() != null)
+          groupNetworkAddresses.put(message.getGroup(), message.getGroupIp() + ":" + message.getGroupPort());
         boolean isMember = message.getJoinedGroups() != null && message.getJoinedGroups().contains(message.getGroup());
         if (!isMember) return;
         leftGroups.remove(message.getGroup());
@@ -602,7 +613,6 @@ public final class ChatFrame extends JFrame {
       }
       case "ERROR" -> {
         Pending failed = pending.remove(id);
-        received.remove(id);
         log("ERROR", message.getContent());
         if (failed != null && ("CREATE_GROUP".equals(failed.message().getType())
             || "ADD_GROUP_MEMBERS".equals(failed.message().getType())))
@@ -614,7 +624,7 @@ public final class ChatFrame extends JFrame {
       }
       case "ACK" -> {
         Pending sent = pending.remove(id);
-        if (sent != null && !received.remove(id)) {
+        if (sent != null && remember(sent.message())) {
           ChatMessage own = sent.message();
           appendTo(conversationKey(own), "ĐÃ GỬI " + label(own), "Bạn: " + own.getContent());
         }
@@ -622,8 +632,7 @@ public final class ChatFrame extends JFrame {
       }
       case "UNICAST", "GROUP_MESSAGE", "BROADCAST" -> {
         if ("GROUP_MESSAGE".equals(message.getType()) && leftGroups.contains(message.getGroup())) return;
-        if (connection.username.equals(message.getSender()) && pending.containsKey(id))
-          received.add(id);
+        if (!remember(message)) return;
         appendTo(conversationKey(message), label(message), message.getSender() + ": " + message.getContent());
         log(
             "RECEIVE",
@@ -634,6 +643,12 @@ public final class ChatFrame extends JFrame {
               "HỆ THỐNG" + (message.getGroup() == null ? "" : " #" + message.getGroup()), message.getContent());
       default -> log(message.getType(), Objects.toString(message.getContent(), ""));
     }
+  }
+
+  private boolean remember(ChatMessage message) {
+    if (message.getRequestId() == null) return true;
+    if (displayedMessages.size() >= 10000) displayedMessages.clear();
+    return displayedMessages.add(message.getSender() + ":" + message.getRequestId());
   }
 
   private static String label(ChatMessage message) {
@@ -654,7 +669,6 @@ public final class ChatFrame extends JFrame {
     users.clear();
     members.clear();
     pending.clear();
-    received.clear();
     addPeople.setEnabled(false);
     for (int i = 0; i < modeTabs.getTabCount(); i++) modeTabs.setEnabledAt(i, false);
     memberChips.removeAll();
