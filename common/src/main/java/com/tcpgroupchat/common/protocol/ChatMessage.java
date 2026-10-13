@@ -13,10 +13,7 @@ public class ChatMessage {
   private String sender;
   private String recipient;
   private String group;
-<<<<<<< HEAD
-=======
   private String groupCreator;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   private String content;
 
   public ChatMessage() {}
@@ -113,13 +110,10 @@ public class ChatMessage {
     this.recipient = recipient;
   }
 
-<<<<<<< HEAD
-=======
   public String getGroupCreator() { return groupCreator; }
 
   public void setGroupCreator(String value) { groupCreator = value; }
 
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   public String getGroup() {
     return group;
   }

@@ -34,23 +34,14 @@ public final class ChatFrame extends JFrame {
       refresh = UiStyles.button("Làm mới", "refresh-cw", false);
   private final Map<String, Pending> pending = new HashMap<>();
   private final Set<String> received = new HashSet<>();
-<<<<<<< HEAD
-  private String activeGroup = "study";
-=======
   private String activeGroup = "";
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   private final DefaultListModel<String> knownGroups = new DefaultListModel<>();
   private final JButton addPeople = UiStyles.button("Thêm người", "users", false);
   private String groupStatus = "Đang tải nhóm…";
   private final Map<String, java.util.List<JPanel>> histories = new LinkedHashMap<>();
-<<<<<<< HEAD
-  private String activeConversation = "group:study";
-  private boolean leaving;
-=======
   private String activeConversation = "group:";
   private boolean leaving;
   private boolean isGroupCreator;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   private final javax.swing.Timer pendingTimer;
 
   private final JPanel bubbles = new JPanel();
@@ -76,11 +67,7 @@ public final class ChatFrame extends JFrame {
     connection.listen(
         message -> SwingUtilities.invokeLater(() -> handle(message)),
         reason -> SwingUtilities.invokeLater(() -> disconnected(reason)));
-<<<<<<< HEAD
-    request("GET_GROUP", activeGroup);
-=======
     request("GET_USERS", null);
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     log("SESSION", "Đăng nhập " + connection.username + " | phiên " + connection.sessionId);
     append(
         conversation,
@@ -167,20 +154,6 @@ public final class ChatFrame extends JFrame {
     JPanel roomSelection = new JPanel(new BorderLayout(0, 8));
     roomSelection.setOpaque(false);
     roomSelection.add(UiStyles.title("Nhóm", 15), BorderLayout.NORTH);
-<<<<<<< HEAD
-    JPanel selector = new JPanel(new BorderLayout(6, 0));
-    selector.setOpaque(false);
-    groupName.putClientProperty("JTextField.placeholderText", "Tên nhóm");
-    groupName.setPreferredSize(new Dimension(100, 40));
-    applyGroup.setText("");
-    applyGroup.setToolTipText("Mở nhóm hoặc tạo nhóm mới khi Join");
-    selector.add(groupName, BorderLayout.CENTER);
-    selector.add(applyGroup, BorderLayout.EAST);
-    roomSelection.add(selector, BorderLayout.CENTER);
-    knownGroups.addElement("study");
-    knownGroups.addElement("general");
-=======
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     JList<String> roomList = new JList<>(knownGroups);
     roomList.setFixedCellHeight(36);
     roomList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -255,11 +228,7 @@ public final class ChatFrame extends JFrame {
     leave.setForeground(UiStyles.ERROR);
     addPeople.addActionListener(e -> chooseGroupMembers(false));
     addPeople.setToolTipText("Chọn người để thêm ngay vào nhóm");
-<<<<<<< HEAD
-    membershipActions.add(join);
-=======
     // Membership is assigned by the creator; no public Join control.
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     membershipActions.add(leave);
     chatHeader.add(membershipActions, BorderLayout.EAST);
     memberChips.setOpaque(false);
@@ -332,11 +301,7 @@ public final class ChatFrame extends JFrame {
     chats.addActionListener(e -> { workspaceLayout.show(workspace, "chat"); chats.setBackground(UiStyles.PRIMARY); journal.setBackground(UiStyles.NAVY); });
     rooms.addActionListener(e -> { chats.doClick(); mode.setSelectedIndex(1); groupName.requestFocusInWindow(); });
     journal.addActionListener(e -> { workspaceLayout.show(workspace, "journal"); journal.setBackground(UiStyles.PRIMARY); chats.setBackground(UiStyles.NAVY); });
-<<<<<<< HEAD
-    refresh.addActionListener(e -> { request("GET_USERS", null); request("GET_GROUP", activeGroup); });
-=======
     refresh.addActionListener(e -> { request("GET_USERS", null); if (!activeGroup.isEmpty()) request("GET_GROUP", activeGroup); });
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     reload.addActionListener(e -> refresh.doClick());
     logout.addActionListener(e -> logout());
     join.setEnabled(false);
@@ -441,10 +406,7 @@ public final class ChatFrame extends JFrame {
       return;
     }
     activeGroup = value;
-<<<<<<< HEAD
-=======
     isGroupCreator = false;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     members.clear();
     memberChips.removeAll();
     memberChips.revalidate();
@@ -463,18 +425,11 @@ public final class ChatFrame extends JFrame {
     recipient.setVisible(mode.getSelectedIndex() == 0);
     if (modeTabs.getSelectedIndex() != mode.getSelectedIndex()) modeTabs.setSelectedIndex(mode.getSelectedIndex());
     boolean groupMode = mode.getSelectedIndex() == 1;
-<<<<<<< HEAD
-    join.setVisible(groupMode);
-    leave.setVisible(groupMode);
-    memberChips.setVisible(groupMode);
-    addPeople.setVisible(groupMode);
-=======
     if (activeGroup.isEmpty()) groupStatus = "Chọn nhóm trong danh sách hoặc bấm Tạo nhóm.";
     join.setVisible(false);
     leave.setVisible(groupMode);
     memberChips.setVisible(groupMode);
     addPeople.setVisible(groupMode && isGroupCreator);
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     membership.setText(groupMode ? groupStatus : mode.getSelectedIndex() == 2
         ? "Gửi đến tất cả client đang đăng nhập"
         : recipient.getText().isBlank() ? "Chọn một người trong danh sách bên trái"
@@ -496,11 +451,7 @@ public final class ChatFrame extends JFrame {
     chatTitle.setToolTipText(mode.getSelectedIndex() == 1 ? "Nhóm #" + activeGroup : recipient.getText());
     chatTitle.setText(switch (mode.getSelectedIndex()) {
       case 0 -> recipient.getText().isBlank() ? "Chọn người để chat" : recipient.getText().trim();
-<<<<<<< HEAD
-      case 1 -> "Nhóm #" + activeGroup;
-=======
       case 1 -> activeGroup.isEmpty() ? "Chọn hoặc tạo nhóm" : "Nhóm #" + activeGroup;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
       default -> "Broadcast";
     });
   }
@@ -532,9 +483,6 @@ public final class ChatFrame extends JFrame {
       }
       message.setRecipient(user);
     }
-<<<<<<< HEAD
-    if (mode.getSelectedIndex() == 1) message.setGroup(activeGroup);
-=======
     if (mode.getSelectedIndex() == 1) {
       if (activeGroup.isEmpty() || !knownGroups.contains(activeGroup)) {
         JOptionPane.showMessageDialog(this, "Hãy chọn nhóm bạn đang tham gia hoặc tạo nhóm mới.");
@@ -542,7 +490,6 @@ public final class ChatFrame extends JFrame {
       }
       message.setGroup(activeGroup);
     }
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     transmit(message);
     input.setText("");
     input.requestFocusInWindow();
@@ -573,16 +520,11 @@ public final class ChatFrame extends JFrame {
         updateDestination();
       }
       case "GROUP_STATE" -> {
-<<<<<<< HEAD
-        if (message.getGroup() != null && !knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
-        if (activeGroup.equals(message.getGroup())) {
-=======
         boolean isMember = message.getJoinedGroups() != null && message.getJoinedGroups().contains(message.getGroup());
         if (!isMember) return;
         if (message.getGroup() != null && !knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
         if (activeGroup.equals(message.getGroup())) {
           isGroupCreator = connection.username.equals(message.getGroupCreator());
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
           members.clear();
           if (message.getMembers() != null) message.getMembers().forEach(members::addElement);
           boolean joined =
@@ -608,12 +550,6 @@ public final class ChatFrame extends JFrame {
           memberChips.repaint();
           join.setEnabled(!joined);
           leave.setEnabled(joined);
-<<<<<<< HEAD
-          addPeople.setEnabled(joined && !connection.isClosed());
-        }
-        if (id != null) pending.remove(id);
-      }
-=======
           addPeople.setEnabled(joined && isGroupCreator && !connection.isClosed());
           addPeople.setVisible(mode.getSelectedIndex() == 1 && isGroupCreator);
         }
@@ -635,7 +571,6 @@ public final class ChatFrame extends JFrame {
         }
         log("LEAVE", message.getContent());
       }
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
       case "GROUP_ADDED" -> {
         if (!knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
         log("GROUP_ADDED", message.getContent());

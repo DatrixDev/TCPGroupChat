@@ -20,10 +20,7 @@ class ChatServerTest {
   ChatServer server;
   Thread accept;
   final List<Peer> peers = new ArrayList<>();
-<<<<<<< HEAD
-=======
   final Map<String, Peer> fixtureCreators = new HashMap<>();
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   final ObjectMapper mapper = new ObjectMapper();
 
   @BeforeEach
@@ -317,8 +314,6 @@ class ChatServerTest {
     assertTrue(server.getGroups().stream().noneMatch(g -> g.name().equals("invalid-selection")));
   }
 
-<<<<<<< HEAD
-=======
   @Test
   void privateGroupsHideMembershipAndRejectUninvitedJoin() throws Exception {
     Peer owner = client("owner"), member = client("member"), stranger = client("stranger");
@@ -337,7 +332,6 @@ class ChatServerTest {
     assertEquals(2, server.getGroups().get(0).count());
   }
 
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   class Peer implements AutoCloseable {
     final String name;
     final Socket socket;
@@ -364,8 +358,6 @@ class ChatServerTest {
     }
 
     void group(String type, String group, String expected) throws Exception {
-<<<<<<< HEAD
-=======
       // Existing routing tests provision membership through the private-group creator first.
       if ("JOIN_GROUP".equals(type) && "JOIN_OK".equals(expected)) {
         Peer creator = fixtureCreators.get(group);
@@ -378,7 +370,6 @@ class ChatServerTest {
           add.setUsers(List.of(name));creator.send(add);creator.next("ADD_GROUP_MEMBERS_OK");
         }
       }
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
       send(new ChatMessage(type, name, null, group, null));
       next(expected);
     }

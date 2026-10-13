@@ -3,11 +3,7 @@ package com.tcpgroupchat.server;
 import com.tcpgroupchat.common.ui.IconManager;
 import com.tcpgroupchat.common.ui.UiStyles;
 import java.awt.*;
-<<<<<<< HEAD
-import java.net.InetAddress;
-=======
 import com.tcpgroupchat.common.net.LocalAddresses;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
@@ -24,11 +20,8 @@ public final class ServerFrame extends JFrame {
   private final JButton start = UiStyles.button("Khởi động", "play", true),
       stop = UiStyles.button("Dừng server", "square", false);
   private final JSpinner port;
-<<<<<<< HEAD
-=======
   private final JComboBox<LocalAddresses.Address> addresses =
       new JComboBox<>(LocalAddresses.available().toArray(LocalAddresses.Address[]::new));
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   private final DefaultTableModel sessions =
       model(
           "Tài khoản",
@@ -144,9 +137,6 @@ public final class ServerFrame extends JFrame {
     JPanel ip = UiStyles.card(new BorderLayout(0, 4));
     ip.setBorder(new EmptyBorder(8, 12, 8, 12));
     ip.add(new JLabel("Địa chỉ IP"), BorderLayout.NORTH);
-<<<<<<< HEAD
-    ip.add(UiStyles.title(localIp(), 14), BorderLayout.CENTER);
-=======
     addresses.setPreferredSize(new Dimension(140, 30));
     addresses.setFont(new Font("Segoe UI", Font.BOLD, 14));
     addresses.addActionListener(e -> {
@@ -156,7 +146,6 @@ public final class ServerFrame extends JFrame {
     });
     addresses.setToolTipText(((LocalAddresses.Address) addresses.getSelectedItem()).adapter());
     ip.add(addresses, BorderLayout.CENTER);
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     controls.add(ip);
     JPanel portCard = UiStyles.card(new BorderLayout(0, 4));
     portCard.setBorder(new EmptyBorder(5, 10, 5, 10));
@@ -515,17 +504,8 @@ public final class ServerFrame extends JFrame {
     return label;
   }
 
-<<<<<<< HEAD
-  private static String localIp() {
-    try {
-      return InetAddress.getLocalHost().getHostAddress();
-    } catch (Exception e) {
-      return "127.0.0.1";
-    }
-=======
   private String localIp() {
     LocalAddresses.Address selected = (LocalAddresses.Address) addresses.getSelectedItem();
     return selected == null ? "127.0.0.1" : selected.ip();
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   }
 }

@@ -3,10 +3,7 @@ package com.tcpgroupchat.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcpgroupchat.common.protocol.ChatMessage;
 import com.tcpgroupchat.common.protocol.JsonLines;
-<<<<<<< HEAD
-=======
 import com.tcpgroupchat.common.net.LocalAddresses;
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -14,13 +11,9 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-<<<<<<< HEAD
-
-=======
 /**
  * All socket work runs outside Swing. Login reads exactly one frame, leaving later events queued.
  */
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
 public final class ClientConnection implements AutoCloseable {
   private final ObjectMapper mapper = new ObjectMapper();
   private final Socket socket;
@@ -54,12 +47,7 @@ public final class ClientConnection implements AutoCloseable {
     this.endpoint = endpoint;
     String address = socket.getLocalAddress().getHostAddress();
     if (socket.getLocalAddress().isLoopbackAddress()) {
-<<<<<<< HEAD
-      try { address = InetAddress.getLocalHost().getHostAddress(); }
-      catch (UnknownHostException ignored) { /* Keep the socket address as fallback. */ }
-=======
       address = LocalAddresses.preferredIp();
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     }
     localIp = address;
     this.username = username;

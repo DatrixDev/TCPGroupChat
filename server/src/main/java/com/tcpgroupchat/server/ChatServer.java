@@ -35,11 +35,8 @@ public final class ChatServer {
   private final ObjectMapper mapper = new ObjectMapper();
   private final Map<String, ClientSession> clients = new TreeMap<>();
   private final Map<String, Set<String>> groups = new TreeMap<>();
-<<<<<<< HEAD
-=======
   private final Map<String, String> groupCreators = new TreeMap<>();
   private final Map<String, Set<String>> formerMembers = new TreeMap<>();
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   private final Set<ClientSession> connections = new HashSet<>();
   private final Deque<LogEntry> logs = new ArrayDeque<>();
   private final Deque<ClientSession> history = new ArrayDeque<>();
@@ -56,11 +53,7 @@ public final class ChatServer {
   public ChatServer(Path dataRoot) {
     this.dataRoot = dataRoot.toAbsolutePath();
     accounts = new AccountStore(this.dataRoot.resolve("accounts"));
-<<<<<<< HEAD
-    groups.put("study", new TreeSet<>());
-=======
 
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   }
 
   public static void main(String[] args) {
@@ -77,10 +70,7 @@ public final class ChatServer {
         });
   }
 
-<<<<<<< HEAD
-=======
   /** Binds before entering the accept loop. Run this method outside the Swing EDT. */
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   public void start(int port) throws IOException {
     if (port < 0 || port > 65535)
       throw new IllegalArgumentException("Cổng cần nằm trong khoảng 1–65535.");
@@ -141,13 +131,9 @@ public final class ChatServer {
     } catch (IOException ignored) {
     }
     for (ClientSession session : List.copyOf(connections)) disconnect(session, "Server dừng");
-<<<<<<< HEAD
-    groups.values().forEach(Set::clear);
-=======
     groups.clear();
     groupCreators.clear();
     formerMembers.clear();
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     serverSocket = null;
     log("SERVER_STOP", "Đã đóng toàn bộ kết nối và xóa thành viên nhóm.");
   }
@@ -292,12 +278,7 @@ public final class ChatServer {
           log("LOGIN", user + " | phiên " + session.id + " | " + session.address());
           broadcastSystem(user + " đã đăng nhập.");
           publishUsers();
-<<<<<<< HEAD
-          for (String group : List.copyOf(groups.keySet())) sendGroupState(session, group, null);
-          publishGroup("study");
-=======
           for (String group : joined(user)) sendGroupState(session, group, null);
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
           return;
         }
         if (session.username == null) throw new IllegalArgumentException("Hãy đăng nhập trước.");
@@ -323,13 +304,8 @@ public final class ChatServer {
         boolean create = "CREATE_GROUP".equals(request.getType());
         Set<String> current = groups.get(group);
         if (create && current != null) throw new IllegalArgumentException("Tên nhóm đã tồn tại. Hãy chọn tên khác.");
-<<<<<<< HEAD
-        if (!create && (current == null || !current.contains(sender.username)))
-          throw new IllegalArgumentException("Bạn cần tham gia nhóm trước khi thêm người.");
-=======
         if (!create && (current == null || !current.contains(sender.username) || !sender.username.equals(groupCreators.get(group))))
           throw new IllegalArgumentException("Chỉ người tạo nhóm đang ở trong nhóm mới được thêm người.");
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
         if (create && groups.size() >= 100) throw new IllegalArgumentException("Đạt giới hạn 100 phòng.");
         if (request.getUsers() == null || request.getUsers().isEmpty() || request.getUsers().size() > 100)
           throw new IllegalArgumentException("Hãy chọn từ 1 đến 100 người đang online.");
@@ -340,14 +316,9 @@ public final class ChatServer {
           selected.add(user);
         }
         // Validate every recipient before changing membership, under the routing lock.
-<<<<<<< HEAD
-        if (create) { current = new TreeSet<>(); groups.put(group, current); selected.add(sender.username); }
-        for (String user : selected) {
-=======
         if (create) { current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); formerMembers.put(group, new TreeSet<>()); selected.add(sender.username); }
         for (String user : selected) {
           formerMembers.get(group).add(user);
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
           if (current.add(user)) {
             ChatMessage notice = new ChatMessage("GROUP_ADDED", "SERVER", user, group,
                 sender.username + " đã thêm bạn vào #" + group);
@@ -363,31 +334,11 @@ public final class ChatServer {
         String group = groupName(request.getGroup());
         Set<String> members = groups.get(group);
         if ("GET_GROUP".equals(request.getType())) {
-<<<<<<< HEAD
-=======
           if (members == null || !members.contains(sender.username)) throw new IllegalArgumentException("Bạn không phải thành viên nhóm.");
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
           sendGroupState(sender, group, request);
           return;
         }
         if ("JOIN_GROUP".equals(request.getType())) {
-<<<<<<< HEAD
-          if (members == null) {
-            if (groups.size() >= 100) throw new IllegalArgumentException("Đạt giới hạn 100 phòng.");
-            groups.put(group, members = new TreeSet<>());
-          }
-          boolean added = members.add(sender.username);
-          reply(
-              sender, request, "JOIN_OK", added ? "Đã Join #" + group : "Bạn đã ở trong #" + group);
-          if (added) {
-            groupSystem(group, sender.username + " đã Join nhóm.");
-            log("JOIN", sender.username + " → #" + group);
-          }
-        } else {
-          if (members == null || !members.remove(sender.username))
-            throw new IllegalArgumentException("Bạn chưa Join #" + group);
-          reply(sender, request, "LEAVE_OK", "Đã Leave #" + group);
-=======
           if (members == null || !members.contains(sender.username))
             throw new IllegalArgumentException("Nhóm riêng tư: cần được người tạo nhóm thêm vào.");
           reply(sender, request, "JOIN_OK", "Bạn đã ở trong #" + group);
@@ -395,7 +346,6 @@ public final class ChatServer {
           if (members == null || !members.remove(sender.username)) throw new IllegalArgumentException("Bạn chưa tham gia nhóm.");
           reply(sender, request, "LEAVE_OK", "Đã Leave #" + group);
           sender.send(new ChatMessage("GROUP_REMOVED", "SERVER", sender.username, group, "Bạn đã rời nhóm."));
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
           groupSystem(group, sender.username + " đã Leave nhóm.");
           log("LEAVE", sender.username + " ← #" + group);
         }
@@ -422,11 +372,8 @@ public final class ChatServer {
           }
           case "GROUP_MESSAGE" -> {
             String group = groupName(request.getGroup());
-<<<<<<< HEAD
-=======
             if (!formerMembers.getOrDefault(group, Set.of()).contains(sender.username))
               throw new IllegalArgumentException("Bạn chưa được thêm vào nhóm này.");
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
             Set<String> members = groups.getOrDefault(group, Set.of());
             // The assignment permits sending after Leave. Membership controls RECEIVING.
             targets = members.stream().map(clients::get).filter(Objects::nonNull).toList();
@@ -493,23 +440,16 @@ public final class ChatServer {
     ChatMessage state = new ChatMessage("GROUP_STATE", "SERVER", null, group, null);
     state.setMembers(List.copyOf(groups.getOrDefault(group, Set.of())));
     state.setJoinedGroups(joined(target.username));
-<<<<<<< HEAD
-=======
     state.setGroupCreator(groupCreators.get(group));
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
     state.setRequestId(request == null ? null : request.getRequestId());
     target.send(state);
   }
 
   private void publishGroup(String group) {
-<<<<<<< HEAD
-    clients.values().forEach(s -> sendGroupState(s, group, null));
-=======
     for (String user : List.copyOf(groups.getOrDefault(group, Set.of()))) {
       ClientSession session = clients.get(user);
       if (session != null) sendGroupState(session, group, null);
     }
->>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
   }
 
   private void groupSystem(String group, String content) {
