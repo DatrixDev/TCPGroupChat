@@ -48,7 +48,17 @@ public final class LoginFrame extends JFrame {
     for (String text :
         new String[] {
           "Kết nối • Trò chuyện • Chia sẻ",
+<<<<<<< HEAD
                 }) {
+=======
+          " ",
+          "Unicast — Gửi riêng một người",
+          "Group — Gửi tới thành viên nhóm",
+          "Broadcast — Gửi tới tất cả client",
+          " ",
+          "Java TCP Socket / Client–Server"
+        }) {
+>>>>>>> 56afbe5ae3e5f6365b0735b3d5d46f40c310b68c
       JLabel label = new JLabel(text);
       label.setForeground(new Color(0xDBEAFE));
       label.setBorder(new EmptyBorder(7, 0, 7, 0));
