@@ -34,7 +34,6 @@ public final class ChatFrame extends JFrame {
       refresh = UiStyles.button("Làm mới", "refresh-cw", false);
   private final Map<String, Pending> pending = new HashMap<>();
   private final Set<String> displayedMessages = new HashSet<>();
-  private final Map<String, String> groupNetworkAddresses = new HashMap<>();
   private final Set<String> leftGroups = new HashSet<>();
   private final Set<String> joinedGroups = new HashSet<>();
   private String activeGroup = "";
@@ -470,9 +469,9 @@ public final class ChatFrame extends JFrame {
       SwingUtilities.invokeLater(() -> bubbleScroll.getVerticalScrollBar().setValue(bubbleScroll.getVerticalScrollBar().getMaximum()));
     }
     destination.setText(switch (mode.getSelectedIndex()) {
-      case 0 -> "UDP Unicast · Người nhận: " + recipient.getText().trim();
-      case 1 -> "IP Multicast: " + groupNetworkAddresses.getOrDefault(activeGroup, "Chưa chọn nhóm");
-      default -> "IP Broadcast: " + connection.broadcastIp + ":" + connection.groupPort;
+      case 0 -> "TCP qua server · Gửi riêng";
+      case 1 -> "TCP qua server · Gửi cho thành viên nhóm";
+      default -> "TCP qua server · Gửi toàn hệ thống";
     });
     chatTitle.setToolTipText(mode.getSelectedIndex() == 1 ? "Nhóm #" + activeGroup : recipient.getText());
     chatTitle.setText(switch (mode.getSelectedIndex()) {
@@ -546,8 +545,6 @@ public final class ChatFrame extends JFrame {
         updateDestination();
       }
       case "GROUP_STATE" -> {
-        if (message.getGroupIp() != null)
-          groupNetworkAddresses.put(message.getGroup(), message.getGroupIp() + ":" + message.getGroupPort());
         boolean isMember = message.getJoinedGroups() != null && message.getJoinedGroups().contains(message.getGroup());
         if (message.getGroup() != null && !knownGroups.contains(message.getGroup())) knownGroups.addElement(message.getGroup());
         if (isMember) {

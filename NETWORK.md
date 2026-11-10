@@ -1,31 +1,20 @@
-# Network code and demo
+# Mạng client–server qua TCP
 
-TCP keeps login, accounts, sessions, group management and ACKs. Application chat requests and deliveries use real UDP packets. The server authenticates UDP requests with the TCP session ID, client IP and registered UDP port.
+Client dùng IP và cổng người dùng nhập trên màn hình đăng nhập để mở kết nối tới server. Sau khi xác thực, cùng socket TCP đó mang các yêu cầu quản lý nhóm, tin nhắn, sự kiện và ACK. Mỗi thông điệp là một dòng JSON UTF-8.
 
-| Traffic | Default address / port | Code |
-| --- | --- | --- |
-| TCP control | Selected server IPv4, TCP 2006 | `ChatServer.start`, `ClientConnection.open` |
-| UDP requests to server | Selected server IPv4, UDP 2008 | `UdpClientTransport.send` |
-| UDP Unicast delivery | Recipient IPv4, automatically assigned client UDP port | `UdpServerTransport.unicast` |
-| UDP Multicast delivery | One assigned group IP, starting at 239.255.1.1, UDP 2007 | `UdpServerTransport.multicast` |
-| UDP Broadcast delivery | Selected adapter's broadcast IP, UDP 2007 | `UdpServerTransport.broadcast` |
+| Chế độ | Server chuyển tin qua socket TCP tới |
+| --- | --- |
+| Unicast | Một người nhận online |
+| Group | Các thành viên hiện tại của nhóm |
+| Broadcast | Mọi client đã đăng nhập, gồm người gửi |
 
-The client sends a chat request to the server by UDP unicast. The server checks the session and group membership, then sends to the requested recipient, multicast IP or broadcast IP. Each multicast group has a distinct IP; the server sends one datagram to that IP, rather than one TCP message per member.
+`ClientConnection.open` kết nối tới địa chỉ đã nhập. `ClientConnection.send` ghi thông điệp lên kết nối đó. `ChatServer.route` chọn người nhận từ các phiên đã xác thực và đưa tin vào hàng đợi gửi của từng phiên. ACK xác nhận server xử lý yêu cầu định tuyến. Nó không xác nhận người nhận đã đọc tin.
 
-`UdpPackets.send` contains the actual `DatagramPacket` and `socket.send` call. `UdpClientTransport.join` and `leave` call `MulticastSocket.joinGroup` and `leaveGroup` on the selected local network interface. Its receive loop validates the server endpoint and ignores groups the client has not joined. A small UDP hello exchange establishes the client return endpoint.
+## Chạy trên LAN
 
-The server displays group IPs in the main dashboard and the group dialog. The client displays the multicast endpoint in Group and the broadcast endpoint in Broadcast. Leave keeps previous messages in the current client session, but disables sending and stops receiving new group messages.
+1. Build lại cả client và server bằng `mvn clean install`.
+2. Trên máy server, chạy ứng dụng, kiểm tra **IP Server** và **Cổng TCP** trên dashboard rồi nhấn **Khởi động**.
+3. Trên mỗi máy client, tự điền IP LAN của máy server và cổng TCP tương ứng vào form đăng nhập. Nếu chạy cùng máy, điền `127.0.0.1`.
+4. Nếu Windows Firewall chặn kết nối, cho phép cổng TCP của server trên mạng riêng. Cổng mặc định là `2006`.
 
-## Run on a LAN
-
-1. Build both server and client with `mvn clean install`.
-2. Start the server, choose its active Wi-Fi/Ethernet IPv4, and click Start.
-3. On the other computers enter that server IPv4 and the TCP port in the login form.
-4. Allow Java through the Windows firewall on the private network. The server needs UDP 2008; multicast/broadcast listeners need UDP 2007, and clients also use their automatic unicast UDP ports.
-5. Create a group and select its members. Compare the group IP shown on server and client, then test Unicast, Group and Broadcast.
-
-The computers must share a network that permits multicast and broadcast. These packets are not an Internet messaging service. UDP can lose or reorder packets; the TCP ACK confirms the server attempted the send, not that a recipient received or read it. Multicast membership is not encryption.
-
-Optional JVM properties: `chat.udp.port` (server UDP port), `chat.group.port` (shared multicast/broadcast port), `chat.port` (TCP port). The server advertises the UDP settings to clients at login.
-
-Raw TCP-only protocol peers remain supported for the existing routing/framing tests. The desktop application always advertises its UDP endpoint and uses the UDP transport for chat.
+Các bước kiểm tra Gửi riêng, Gửi nhóm, Leave và Gửi tất cả nằm trong [kịch bản demo](README.md#kịch-bản-demo-5-client).

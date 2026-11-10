@@ -1,7 +1,6 @@
 package com.tcpgroupchat.server;
 
 import com.tcpgroupchat.client.ClientConnection;
-import com.tcpgroupchat.common.net.UdpPackets;
 import com.tcpgroupchat.common.protocol.ChatMessage;
 import java.util.*;
 import java.util.concurrent.*;
@@ -10,8 +9,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Actual application clients: TCP control + UDP chat, including real multicast memberships. */
-class UdpChatTest {
+/** Exercise the same TCP connection used by the Swing client against the real server. */
+class ClientConnectionTest {
   @TempDir Path data;
   ChatServer server;
   Thread accept;
@@ -36,42 +35,48 @@ class UdpChatTest {
     peers.add(p);return p;
   }
 
-  @Test void realUdpUnicastMulticastBroadcastAndLeave() throws Exception {
+  @Test void unicastGroupBroadcastAndLeaveOverTcp() throws Exception {
     Peer[] p = {peer("client1"),peer("client2"),peer("client3"),peer("client4"),peer("client5")};
     ChatMessage create = new ChatMessage("CREATE_GROUP", "client1", null, "study", null);
     create.setUsers(List.of("client2","client3"));p[0].send(create);
     p[0].next("CREATE_GROUP_OK");
     for (int i=0;i<3;i++) {
       ChatMessage state=p[i].next("GROUP_STATE");
-      assertTrue(java.net.InetAddress.getByName(state.getGroupIp()).isMulticastAddress());
+      assertEquals("study", state.getGroup());
+      assertTrue(state.getJoinedGroups().contains("study"));
       assertEquals(3,state.getMembers().size());
     }
-    p[0].chat("GROUP_MESSAGE",null,"study","UDP multicast tiếng Việt");p[0].next("ACK");
-    for(int i=0;i<3;i++)assertEquals("UDP multicast tiếng Việt",p[i].next("GROUP_MESSAGE").getContent());
+    p[0].chat("GROUP_MESSAGE",null,"study","Tin nhóm tiếng Việt");p[0].next("ACK");
+    for(int i=0;i<3;i++)assertEquals("Tin nhóm tiếng Việt",p[i].next("GROUP_MESSAGE").getContent());
     p[3].noChat();p[4].noChat();
     p[0].send(new ChatMessage("LEAVE_GROUP","client1",null,"study",null));p[0].next("GROUP_REMOVED");
     p[1].chat("GROUP_MESSAGE",null,"study","After Leave");p[1].next("ACK");
     p[1].next("GROUP_MESSAGE");p[2].next("GROUP_MESSAGE");p[0].noChat();
     p[0].chat("GROUP_MESSAGE",null,"study","Blocked");p[0].next("ERROR");
-    p[0].chat("UNICAST","client4",null,"Private UDP");p[0].next("ACK");
-    assertEquals("Private UDP",p[3].next("UNICAST").getContent());
+    p[0].chat("UNICAST","client4",null,"Tin riêng");p[0].next("ACK");
+    assertEquals("Tin riêng",p[3].next("UNICAST").getContent());
     p[0].noChat();p[1].noChat();p[2].noChat();p[4].noChat();
-    p[4].chat("BROADCAST",null,null,"LAN broadcast");p[4].next("ACK");
-    for(Peer peer:p)assertEquals("LAN broadcast",peer.next("BROADCAST").getContent());
+    p[4].chat("BROADCAST",null,null,"Tin toàn hệ thống");p[4].next("ACK");
+    for(Peer peer:p)assertEquals("Tin toàn hệ thống",peer.next("BROADCAST").getContent());
     assertEquals(2,server.getStats().group());assertEquals(1,server.getStats().unicast());assertEquals(1,server.getStats().broadcast());
   }
 
-  @Test void multicastGroupsAreIndependentAndMemberCanBeAddedAgain() throws Exception {
+  @Test void groupsAreIndependentAndMemberCanBeAddedAgain() throws Exception {
     Peer owner=peer("owner"), member=peer("member"), other=peer("other");
-    owner.next("UDP_READY");member.next("UDP_READY");other.next("UDP_READY");
     ChatMessage a=new ChatMessage("CREATE_GROUP","owner",null,"room_a",null);a.setUsers(List.of("member"));owner.send(a);owner.next("CREATE_GROUP_OK");
-    String ipA=member.nextGroupState("room_a").getGroupIp();owner.nextGroupState("room_a");
+    assertEquals(List.of("room_a"),member.nextGroupState("room_a").getJoinedGroups());
+    owner.nextGroupState("room_a");
     ChatMessage b=new ChatMessage("CREATE_GROUP","owner",null,"room_b",null);b.setUsers(List.of("other"));owner.send(b);owner.next("CREATE_GROUP_OK");
-    String ipB=other.nextGroupState("room_b").getGroupIp();owner.nextGroupState("room_b");assertNotEquals(ipA,ipB);
+    assertEquals(List.of("room_b"),other.nextGroupState("room_b").getJoinedGroups());
+    owner.nextGroupState("room_b");
     owner.chat("GROUP_MESSAGE",null,"room_a","Only A");owner.next("ACK");owner.next("GROUP_MESSAGE");member.next("GROUP_MESSAGE");other.noChat();
-    member.send(new ChatMessage("LEAVE_GROUP","member",null,"room_a",null));member.next("GROUP_REMOVED");owner.next("GROUP_STATE");
+    member.send(new ChatMessage("LEAVE_GROUP", "member", null, "room_a", null));
+    member.next("GROUP_REMOVED");
+    assertTrue(member.nextGroupState("room_a").getJoinedGroups().isEmpty());
+    owner.nextGroupState("room_a");
     ChatMessage add=new ChatMessage("ADD_GROUP_MEMBERS","owner",null,"room_a",null);add.setUsers(List.of("member"));owner.send(add);owner.next("ADD_GROUP_MEMBERS_OK");
-    assertEquals(ipA,member.nextGroupState("room_a").getGroupIp());owner.nextGroupState("room_a");
+    assertEquals(List.of("room_a"),member.nextGroupState("room_a").getJoinedGroups());
+    owner.nextGroupState("room_a");
     owner.chat("GROUP_MESSAGE",null,"room_a","Joined again");owner.next("ACK");owner.next("GROUP_MESSAGE");assertEquals("Joined again",member.next("GROUP_MESSAGE").getContent());other.noChat();
     member.send(new ChatMessage("UNICAST","forged-user","owner",null,"identity"));member.next("ACK");assertEquals("member",owner.next("UNICAST").getSender());
   }
@@ -103,9 +108,10 @@ class UdpChatTest {
       fail("No GROUP_STATE for "+group+" and "+connection.username);return null;
     }
     void noChat() throws Exception {
-      for(ChatMessage m:saved)assertFalse(UdpPackets.isChat(m.getType()),m.getType());saved.clear();
+      Set<String> chatTypes = Set.of("UNICAST", "GROUP_MESSAGE", "BROADCAST");
+      for(ChatMessage m:saved)assertFalse(chatTypes.contains(m.getType()),m.getType());saved.clear();
       long end=System.currentTimeMillis()+180;
-      while(System.currentTimeMillis()<end){ChatMessage m=inbox.poll(30,TimeUnit.MILLISECONDS);if(m!=null)assertFalse(UdpPackets.isChat(m.getType()),m.getType());}
+      while(System.currentTimeMillis()<end){ChatMessage m=inbox.poll(30,TimeUnit.MILLISECONDS);if(m!=null)assertFalse(chatTypes.contains(m.getType()),m.getType());}
     }
   }
 }

@@ -6,7 +6,7 @@
 
 **Client**
 
-- Màn hình đăng ký/đăng nhập với tài khoản, mật khẩu, xác nhận mật khẩu và IP/cổng server.
+- Màn hình đăng ký/đăng nhập với tài khoản, mật khẩu và ô **IP máy server** để người dùng tự nhập. Cổng TCP mặc định là `2006`.
 - Một tài khoản chỉ có một phiên online. Tên đăng nhập không phân biệt hoa/thường, chuẩn hóa về chữ thường.
 - Giao diện navy theo UDPMail: menu trái, danh sách nhóm/client, bong bóng chat, ba tab Unicast / Group / Broadcast ở đầu khung chat. Nhật ký phiên mở từ menu.
 - Hiện IP máy client ở góc dưới bên phải, tên tài khoản, địa chỉ server, thời gian đăng nhập; mã phiên nằm trong tooltip của dòng thông tin và nhật ký phiên.
@@ -22,7 +22,7 @@
 **Server**
 
 - Dashboard theo UDPMail: ba thẻ thống kê, bảng người dùng và nhật ký xếp dọc. Khởi động/dừng, cấu hình cổng TCP, hiện IP LAN và thời gian hệ thống.
-- Thống kê tài khoản, client online, tổng lượt Join hiện tại; các bản tin Unicast/Group/Broadcast được ghi trong nhật ký.
+- Thống kê tài khoản, client online và tổng tin nhắn. Các bản tin Unicast/Group/Broadcast được ghi trong nhật ký.
 - Bảng phiên: tài khoản, IP/cổng client, giờ đăng nhập/đăng xuất, Online/Offline, nhóm và mã phiên (hiện 8 ký tự đầu, tooltip chứa mã đầy đủ).
 - Ngắt một phiên đã chọn. Lịch sử tối đa 1.000 phiên trong bộ nhớ; chi tiết login/logout còn trong file log.
 - Nút **Nhóm** mở bảng phòng/nhóm và danh sách người nhận hiện tại.
@@ -37,11 +37,11 @@
 | Group (multicast ở tầng ứng dụng) | Chỉ thành viên hiện tại của nhóm đích |
 | Broadcast | Tất cả client đã đăng nhập, kể cả người gửi |
 
-**Ví dụ Leave trong đề:** client 1 Leave rồi vẫn có thể gửi vào nhóm; client 2 và 3 còn Join nhận tin, client 1 không nhận bản tin nhóm. Join/Leave kiểm soát **quyền nhận**, không chặn gửi vào nhóm. UI người gửi hiển thị bản sao **ĐÃ GỬI** khi có ACK; đây không phải bản tin Group được server gửi lại cho người ngoài nhóm. Tương tự, Unicast có ACK cho người gửi nhưng chỉ người nhận nhận bản tin `UNICAST`.
+Khi Leave, client dừng gửi và nhận tin mới của nhóm. Với Unicast, server trả ACK cho người gửi và chuyển bản tin `UNICAST` cho người nhận.
 
 Server gửi ACK khi đã xếp bản tin vào các hàng đợi gửi của các client đích. ACK không phải xác nhận người nhận đã đọc. Log ghi rõ danh sách client được định tuyến.
 
-Group và Broadcast được server phân phối qua từng kết nối **TCP**, không sử dụng IP multicast hoặc UDP broadcast. Đây là mô phỏng các chế độ truyền tin ở tầng ứng dụng theo mô hình client–server.
+Đăng nhập, quản lý nhóm và cả ba chế độ chat dùng kết nối **TCP** tới server. Group và Broadcast là cách server chọn người nhận ở tầng ứng dụng và gửi qua từng socket TCP.
 
 ## Chạy nhanh
 
@@ -65,7 +65,7 @@ Trên Windows: chạy `build.bat`, sau đó `run-server.bat` và mở `run-clien
 Trong IntelliJ: mở thư mục gốc dưới dạng Maven project, chọn JDK 17 và chạy:
 
 - Server: `com.tcpgroupchat.server.ChatServer` → nhấn **Khởi động**.
-- Client: `com.tcpgroupchat.client.ClientApplication` → đăng ký tài khoản, đăng nhập.
+- Client: `com.tcpgroupchat.client.ClientApplication` → tự nhập **IP máy server** (`127.0.0.1` nếu chạy cùng máy), đăng ký tài khoản rồi đăng nhập.
 - Bật **Allow multiple instances** trong Run Configuration của client để mở 5 cửa sổ.
 
 Cũng có thể chạy sau `mvn clean install`:
@@ -79,9 +79,9 @@ mvn -pl client exec:java -Dexec.mainClass=com.tcpgroupchat.client.ClientApplicat
 
 1. Khởi động server ở cổng `2006`.
 2. Đăng ký `client1` đến `client5`, đăng nhập bằng 5 cửa sổ khác nhau.
-3. Client 1, 2, 3 chọn nhóm `study` rồi **Join**; client 4, 5 ở ngoài. Dashboard hiện nhóm có 3 thành viên.
+3. Client 1 tạo nhóm `study` và chọn client 2, 3 làm thành viên. Client 4, 5 ở ngoài nhóm. Nút **Nhóm** trên dashboard cho thấy 3 thành viên.
 4. Client 1 chọn **Group** và gửi `Tin nhóm lần 1`: chỉ client 1, 2, 3 nhận bản tin nhóm. Xem log server để đối chiếu danh sách nhận.
-5. Client 1 **Leave**, sau đó chính client 1 gửi `Tin sau Leave`: chỉ client 2, 3 nhận bản tin nhóm. Client 1 thấy **ĐÃ GỬI** và ACK cho 2 đích; client 4, 5 không nhận.
+5. Client 1 **Leave**, sau đó client 2 gửi `Tin sau Leave`. Chỉ client 2 và 3 nhận tin nhóm.
 6. Client 1 chọn **Unicast**, người nhận `client4`, gửi `Tin riêng`: chỉ client 4 nhận `UNICAST`; client 1 có bản sao gửi và ACK.
 7. Client 5 chọn **Broadcast** và gửi `Tin toàn hệ thống`: cả 5 nhận, không phụ thuộc nhóm.
 8. Đóng client 2: số online và danh sách nhóm cập nhật, phiên chuyển Offline có giờ kết thúc.
@@ -89,14 +89,7 @@ mvn -pl client exec:java -Dexec.mainClass=com.tcpgroupchat.client.ClientApplicat
 
 ## Chạy trên hai máy LAN
 
-Server chạy trên máy A; client chạy máy B. Tại màn hình đăng nhập máy B, điền IP LAN máy A (ví dụ `192.168.1.10`) và cổng server. Cho phép **TCP** cổng đó trên firewall máy A. Không dùng `127.0.0.1` để nối sang máy khác.
-
-Giá trị mặc định có thể cấu hình bằng `CHAT_HOST`, `CHAT_PORT` hoặc Java properties `chat.host`, `chat.port`:
-
-```bash
-java -Dchat.host=192.168.1.10 -Dchat.port=2006 -jar client/target/TCPGroupChat-client.jar
-java -Dchat.port=2006 -Dchat.data=server_data -jar server/target/TCPGroupChat-server.jar
-```
+Trên máy A, khởi động server và xem ô **IP Server** trên dashboard. Trên máy B, tự nhập địa chỉ đó (ví dụ `192.168.1.10`) vào ô **IP máy server** và nhập cổng TCP tương ứng. Cho phép cổng TCP đó qua firewall máy A. Dùng cùng bản build cho client và server.
 
 ## Cấu trúc và dữ liệu
 

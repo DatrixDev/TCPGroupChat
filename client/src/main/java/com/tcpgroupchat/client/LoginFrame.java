@@ -7,11 +7,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
 public final class LoginFrame extends JFrame {
-  private final JTextField user = new JTextField(),
-      host =
-          new JTextField(
-              System.getProperty(
-                  "chat.host", System.getenv().getOrDefault("CHAT_HOST", "127.0.0.1")));
+  private final JTextField user = new JTextField(), host = new JTextField();
   private final JPasswordField password = new JPasswordField(), confirm = new JPasswordField();
   private final JTextField port =
       new JTextField(
@@ -68,7 +64,9 @@ public final class LoginFrame extends JFrame {
     confirmField.setVisible(false);
     JPanel address = new JPanel(new GridLayout(1, 2, 12, 0));
     address.setOpaque(false);
-    address.add(UiStyles.field("IP / Host Server", host));
+    host.putClientProperty("JTextField.placeholderText", "VD: 192.168.1.10");
+    host.setToolTipText("Nhập IP Server hiển thị trên dashboard máy chủ.");
+    address.add(UiStyles.field("IP máy server", host));
     address.add(UiStyles.field("Cổng TCP", port));
     addField(form, address);
     feedback.setForeground(UiStyles.ERROR);
@@ -124,22 +122,27 @@ public final class LoginFrame extends JFrame {
         pass = new String(password.getPassword());
     final int portNumber;
     try {
+      if (hostname.isBlank()) {
+        host.requestFocusInWindow();
+        throw new IllegalArgumentException("Hãy nhập IP máy server.");
+      }
       if (!name.matches("[A-Za-z0-9_-]{2,20}"))
         throw new IllegalArgumentException("Tên đăng nhập không hợp lệ.");
       if (pass.length() < 4 || pass.length() > 128)
         throw new IllegalArgumentException("Mật khẩu cần 4–128 ký tự.");
       if (registering && !pass.equals(new String(confirm.getPassword())))
         throw new IllegalArgumentException("Mật khẩu nhập lại chưa khớp.");
-      if (hostname.isBlank()) throw new IllegalArgumentException("Hãy nhập IP/Host server.");
       portNumber = Integer.parseInt(port.getText().trim());
       if (portNumber < 1 || portNumber > 65535)
         throw new IllegalArgumentException("Cổng cần từ 1 đến 65535.");
     } catch (IllegalArgumentException e) {
+      feedback.setForeground(UiStyles.ERROR);
       feedback.setText(e instanceof NumberFormatException ? "Cổng phải là số." : e.getMessage());
       return;
     }
     final boolean register = registering;
     busy(true);
+    feedback.setForeground(UiStyles.MUTED);
     feedback.setText("Đang kết nối tới server…");
     new SwingWorker<ClientConnection, Void>() {
       @Override

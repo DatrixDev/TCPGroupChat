@@ -39,7 +39,7 @@ public final class ServerFrame extends JFrame {
           "Trạng thái",
           "Nhóm",
           "Mã phiên");
-  private final DefaultTableModel groups = model("Nhóm", "IP Multicast", "Cổng UDP", "Thành viên", "Danh sách nhận tin");
+  private final DefaultTableModel groups = model("Nhóm", "Thành viên", "Danh sách nhận tin");
   private final DefaultTableModel logs = model("Thời gian", "Sự kiện", "Thông tin");
   private final JTable sessionTable = table(sessions), logTable = table(logs);
   private final JTextField search = new JTextField(12);
@@ -305,7 +305,7 @@ public final class ServerFrame extends JFrame {
 
   private void showGroups() {
     JTable groupTable = table(groups);
-    groupTable.getColumnModel().getColumn(4).setPreferredWidth(275);
+    groupTable.getColumnModel().getColumn(2).setPreferredWidth(420);
     JScrollPane scroll = new JScrollPane(groupTable);
     scroll.setPreferredSize(new Dimension(780, 300));
     JOptionPane.showMessageDialog(this, scroll, "Phòng / Nhóm", JOptionPane.PLAIN_MESSAGE);
@@ -371,12 +371,10 @@ public final class ServerFrame extends JFrame {
     port.setEnabled(false);
     status.setText("Đang khởi động…");
     int selected = (Integer) port.getValue();
-    String ip = localIp();
     Thread thread =
         new Thread(
             () -> {
               try {
-                server.configureUdp(ip);
                 server.start(selected);
               } catch (Exception e) {
                 SwingUtilities.invokeLater(
@@ -433,8 +431,7 @@ public final class ServerFrame extends JFrame {
     status.setIcon(IconManager.load(stateIcon, 13, 13, stateColor));
     status.setText(
         running
-            ? "TCP " + localIp() + ":" + server.getPort() + "  ·  UDP " + server.getUdpPort()
-                + "  ·  Broadcast " + server.getBroadcastIp() + ":" + server.getGroupPort()
+            ? "TCP Server đang lắng nghe  ·  " + localIp() + ":" + server.getPort()
             : starting
                 ? "Đang khởi động server…"
                 : "TCP Server đã dừng  ·  Cổng " + port.getValue());
@@ -488,7 +485,7 @@ public final class ServerFrame extends JFrame {
               }
           groups.setRowCount(0);
           for (ChatServer.GroupInfo g : (List<ChatServer.GroupInfo>) result[2])
-            groups.addRow(new Object[] {g.name(), g.ip(), g.port(), g.count(), g.members()});
+            groups.addRow(new Object[] {g.name(), g.count(), g.members()});
           logs.setRowCount(0);
           List<ChatServer.LogEntry> entries = (List<ChatServer.LogEntry>) result[3];
           for (int i = entries.size() - 1; i >= 0; i--) {

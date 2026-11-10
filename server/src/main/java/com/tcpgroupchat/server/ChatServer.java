@@ -4,9 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcpgroupchat.common.protocol.ChatMessage;
 import com.tcpgroupchat.common.protocol.JsonLines;
 import com.tcpgroupchat.server.service.AccountStore;
-import com.tcpgroupchat.server.net.UdpServerTransport;
-import com.tcpgroupchat.common.net.LocalAddresses;
-import com.tcpgroupchat.common.net.UdpPackets;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +26,7 @@ public final class ChatServer {
       boolean online,
       String groups) {}
 
-  public record GroupInfo(String name, int count, String members, String ip, int port) {}
+  public record GroupInfo(String name, int count, String members) {}
 
   public record Stats(
       int accounts, int online, int members, long unicast, long group, long broadcast) {}
@@ -38,12 +35,6 @@ public final class ChatServer {
   private final ObjectMapper mapper = new ObjectMapper();
   private final Map<String, ClientSession> clients = new TreeMap<>();
   private final Map<String, Set<String>> groups = new TreeMap<>();
-  private final Map<String, String> groupIps = new TreeMap<>();
-  private int nextGroupIp = 1;
-  private UdpServerTransport udp;
-  private String networkIp = LocalAddresses.preferredIp();
-  private final int configuredUdpPort = Integer.getInteger("chat.udp.port", 2008);
-  private final int groupPort = Integer.getInteger("chat.group.port", 2007);
   private final Map<String, String> groupCreators = new TreeMap<>();
   private final Set<ClientSession> connections = new HashSet<>();
   private final Deque<LogEntry> logs = new ArrayDeque<>();
@@ -89,10 +80,8 @@ public final class ChatServer {
       try {
         listener.setReuseAddress(true);
         listener.bind(new InetSocketAddress(port));
-        udp = new UdpServerTransport(networkIp, configuredUdpPort, groupPort, this::handleUdp);
       } catch (IOException | RuntimeException e) {
         listener.close();
-        if (udp != null) { udp.close(); udp = null; }
         throw e;
       }
       serverSocket = listener;
@@ -141,9 +130,6 @@ public final class ChatServer {
     } catch (IOException ignored) {
     }
     for (ClientSession session : List.copyOf(connections)) disconnect(session, "Server dừng");
-    if (udp != null) { udp.close(); udp = null; }
-    groupIps.clear();
-    nextGroupIp = 1;
     groups.clear();
     groupCreators.clear();
     serverSocket = null;
@@ -197,7 +183,7 @@ public final class ChatServer {
   public List<GroupInfo> getGroups() {
     synchronized (stateLock) {
       return groups.entrySet().stream()
-          .map(e -> new GroupInfo(e.getKey(), e.getValue().size(), String.join(", ", e.getValue()), groupIps.get(e.getKey()), groupPort))
+          .map(e -> new GroupInfo(e.getKey(), e.getValue().size(), String.join(", ", e.getValue())))
           .toList();
     }
   }
@@ -246,39 +232,6 @@ public final class ChatServer {
     }
   }
 
-  public void configureUdp(String ip) {
-    synchronized (stateLock) {
-      if (running) throw new IllegalStateException("Dừng server trước khi đổi card mạng.");
-      networkIp = ip;
-    }
-  }
-
-  public String getBroadcastIp() {
-    try { return UdpPackets.broadcastIp(networkIp); }
-    catch (IOException e) { return "255.255.255.255"; }
-  }
-  public int getUdpPort() { UdpServerTransport transport = udp; return transport == null ? configuredUdpPort : transport.port(); }
-  public int getGroupPort() { return groupPort; }
-
-  private void handleUdp(DatagramPacket packet, ChatMessage request) {
-    synchronized (stateLock) {
-      ClientSession session = connections.stream()
-          .filter(s -> s.username != null && s.id.equals(request.getSessionId()) && s.udpPort == packet.getPort())
-          .findFirst().orElse(null);
-      if (session == null) return;
-      InetAddress peer = session.socket.getInetAddress();
-      boolean sameComputer = peer.isLoopbackAddress() && packet.getAddress().getHostAddress().equals(networkIp);
-      if (!peer.equals(packet.getAddress()) && !sameComputer) return;
-      session.udpAddress = packet.getAddress();
-      if ("UDP_HELLO".equals(request.getType())) {
-        try { udp.unicast(ChatMessage.of("UDP_READY", "SERVER", "UDP sẵn sàng"), packet.getAddress(), packet.getPort()); }
-        catch (IOException e) { log("ERROR", "UDP handshake: " + e.getMessage()); }
-        return;
-      }
-      handle(session, request);
-    }
-  }
-
   private void handle(ClientSession session, ChatMessage message) {
     synchronized (stateLock) {
       if (!running || session.closed.get()) return;
@@ -304,13 +257,6 @@ public final class ChatServer {
             throw new IllegalArgumentException("Tên đăng nhập hoặc mật khẩu không đúng.");
           if (clients.containsKey(user))
             throw new IllegalArgumentException("Tài khoản đang đăng nhập ở client khác.");
-          if (message.getUdpPort() < 0 || message.getUdpPort() > 65535)
-            throw new IllegalArgumentException("Cổng UDP client không hợp lệ.");
-          if (message.getUdpPort() > 0) {
-            if (udp == null) udp = new UdpServerTransport(networkIp, configuredUdpPort, groupPort, this::handleUdp);
-            session.udpPort = message.getUdpPort();
-            session.udpAddress = session.socket.getInetAddress();
-          }
           session.username = user;
           session.loginTime = LocalDateTime.now().toString();
           session.socket.setSoTimeout(0);
@@ -330,7 +276,7 @@ public final class ChatServer {
           log("LOGIN", user + " | phiên " + session.id + " | " + session.address());
           broadcastSystem(user + " đã đăng nhập.");
           publishUsers();
-          // Public rooms are announced to every logged-in client. Only members join the multicast address.
+          // Every client can discover rooms. The server routes group messages only to members.
           for (String group : groups.keySet()) sendGroupState(session, group, null);
           return;
         }
@@ -344,13 +290,13 @@ public final class ChatServer {
                 + " | "
                 + e.getMessage());
       } catch (IOException e) {
-        reply(session, message, "ERROR", "Server không thể đọc/ghi dữ liệu hoặc gửi UDP.");
+        reply(session, message, "ERROR", "Server không thể xử lý yêu cầu.");
         log("ERROR", e.getMessage());
       }
     }
   }
 
-  private void route(ClientSession sender, ChatMessage request) throws IOException {
+  private void route(ClientSession sender, ChatMessage request) {
     switch (request.getType()) {
       case "CREATE_GROUP", "ADD_GROUP_MEMBERS" -> {
         String group = groupName(request.getGroup());
@@ -371,7 +317,12 @@ public final class ChatServer {
           selected.add(user);
         }
         // Validate every recipient before changing membership, under the routing lock.
-        if (create) { groupIps.put(group, "235.1.1." + nextGroupIp++); current = new TreeSet<>(); groups.put(group, current); groupCreators.put(group, sender.username); selected.add(sender.username); }
+        if (create) {
+          current = new TreeSet<>();
+          groups.put(group, current);
+          groupCreators.put(group, sender.username);
+          selected.add(sender.username);
+        }
         for (String user : selected) {
           if (current.add(user)) {
             ChatMessage notice = new ChatMessage("GROUP_ADDED", "SERVER", user, group,
@@ -424,37 +375,28 @@ public final class ChatServer {
             if (target == null) throw new IllegalArgumentException("Người nhận không online.");
             outgoing.setRecipient(recipient);
             targets = List.of(target);
-            destination = recipient + (target.udpPort > 0 ? " [UDP " + target.udpAddress.getHostAddress() + ":" + target.udpPort + "]" : " [TCP]");
+            destination = recipient;
             unicastCount++;
           }
           case "GROUP_MESSAGE" -> {
             String group = groupName(request.getGroup());
-            if (!groups.getOrDefault(group, Set.of()).contains(sender.username))
-              throw new IllegalArgumentException("Bạn không còn là thành viên nhóm này.");
             Set<String> members = groups.getOrDefault(group, Set.of());
+            if (!members.contains(sender.username))
+              throw new IllegalArgumentException("Bạn không còn là thành viên nhóm này.");
             targets = members.stream().map(clients::get).filter(Objects::nonNull).toList();
             if (targets.isEmpty())
               throw new IllegalArgumentException("Nhóm chưa có thành viên online.");
             outgoing.setGroup(group);
-            destination = "#" + group + " [Multicast " + groupIps.get(group) + ":" + groupPort + "]";
+            destination = "#" + group;
             groupCount++;
           }
           default -> {
             targets = List.copyOf(clients.values());
-            destination = "ALL [Broadcast " + getBroadcastIp() + ":" + groupPort + "]";
+            destination = "ALL";
             broadcastCount++;
           }
         }
-        // Application clients use UDP. Legacy TCP peers remain supported for protocol tests.
-        List<ClientSession> udpTargets = targets.stream().filter(s -> s.udpPort > 0).toList();
-        if (!udpTargets.isEmpty()) {
-          switch (request.getType()) {
-            case "UNICAST" -> udp.unicast(outgoing, udpTargets.get(0).udpAddress, udpTargets.get(0).udpPort);
-            case "GROUP_MESSAGE" -> udp.multicast(outgoing, groupIps.get(outgoing.getGroup()));
-            case "BROADCAST" -> udp.broadcast(outgoing);
-          }
-        }
-        targets.stream().filter(s -> s.udpPort == 0).forEach(s -> s.send(outgoing));
+        for (ClientSession target : targets) target.send(outgoing);
         reply(
             sender,
             request,
@@ -466,7 +408,7 @@ public final class ChatServer {
         log(
             request.getType(),
             sender.username
-                + " → "
+                + " → TCP "
                 + destination
                 + " | nhận: "
                 + String.join(", ", targets.stream().map(s -> s.username).toList())
@@ -490,12 +432,6 @@ public final class ChatServer {
     response.setRequestId(request == null ? null : request.getRequestId());
     response.setGroup(request == null ? null : request.getGroup());
     response.setSessionId(target.id);
-    if ("LOGIN_OK".equals(type)) {
-      response.setNetworkIp(networkIp);
-      response.setUdpPort(getUdpPort());
-      response.setGroupPort(groupPort);
-      response.setBroadcastIp(getBroadcastIp());
-    }
     response.setTimestamp(LocalDateTime.now().toString());
     target.send(response);
   }
@@ -512,8 +448,6 @@ public final class ChatServer {
     state.setMembers(List.copyOf(groups.getOrDefault(group, Set.of())));
     state.setJoinedGroups(joined(target.username));
     state.setGroupCreator(groupCreators.get(group));
-    state.setGroupIp(groupIps.get(group));
-    state.setGroupPort(groupPort);
     state.setRequestId(request == null ? null : request.getRequestId());
     target.send(state);
   }
@@ -577,8 +511,6 @@ public final class ChatServer {
     final String id = UUID.randomUUID().toString();
     final ArrayBlockingQueue<String> outgoing = new ArrayBlockingQueue<>(256);
     final AtomicBoolean closed = new AtomicBoolean();
-    int udpPort;
-    InetAddress udpAddress;
     Thread writerThread;
     String username, loginTime = "", logoutTime = "";
 
