@@ -1,6 +1,6 @@
 # TCPGroupChat — Chat Client–Server
 
-Đồ án lập trình mạng bằng **Java 17, TCP Socket, Swing, FlatLaf và JSON Lines**. Giữ mô hình desktop client/server và phong cách xanh navy, dashboard, icon SVG của UDPMail. Không cần Spring Boot, web server hay cơ sở dữ liệu ngoài.
+Đồ án lập trình mạng bằng **Java 17, TCP Socket, Swing, FlatLaf và JSON Lines**. Giữ mô hình desktop client/server và phong cách xanh navy, dashboard, icon SVG của UDPMail. Không cần Spring Boot, web server hay cơ sở dữ liệu ngoài
 
 ## Chức năng đã hoàn thiện
 
