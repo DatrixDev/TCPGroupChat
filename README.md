@@ -62,6 +62,15 @@ java -jar client/target/TCPGroupChat-client.jar
 
 Trên Windows: chạy `build.bat`, sau đó `run-server.bat` và mở `run-client.bat` nhiều lần. Nếu bản đóng gói có thư mục `dist`, hai file chạy sẽ tự dùng JAR trong `dist`, chỉ cần Java, không cần build lại.
 
+### MySQL, emoji và tệp đa phương tiện
+
+- Chạy `docker compose up -d` để mở MySQL, sau đó chạy `run-server-db.bat`.
+- Server ứng dụng dùng MySQL làm nguồn dữ liệu duy nhất. Các file `.properties` cũ chỉ được đọc một lần để di chuyển tài khoản vào MySQL và không nhận đăng ký mới.
+- HeidiSQL: host `127.0.0.1`, port `3306`, user `tcpchat`, password `tcpchat`, database `tcpgroupchat`.
+- Client có bảng emoji và các nút gửi File, Audio, Video. Tệp tối đa 8 MB và được truyền qua TCP; tin nhắn chữ vẫn dùng UDP.
+- Người nhận có thể lưu hoặc mở/phát tệp ngay trong bong bóng chat. IP máy gửi được hiển thị trong phần thông tin của tin nhắn.
+- MySQL lưu tài khoản và metadata lịch sử tin nhắn; dữ liệu nhị phân của tệp không được ghi vào database.
+
 Trong IntelliJ: mở thư mục gốc dưới dạng Maven project, chọn JDK 17 và chạy:
 
 - Server: `com.tcpgroupchat.server.ChatServer` → nhấn **Khởi động**.

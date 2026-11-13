@@ -16,6 +16,15 @@ public class ChatMessage {
   private String groupCreator;
   private String content;
 
+  private String senderIp;
+  private String attachmentName;
+  private String attachmentType;
+  private String attachmentData;
+  private long attachmentSize;
+  private String groupIp, broadcastIp, networkIp;
+  private int udpPort, groupPort;
+
+
   public ChatMessage() {}
 
   public ChatMessage(String type, String sender, String recipient, String group, String content) {
@@ -128,5 +137,21 @@ public class ChatMessage {
 
   public void setContent(String content) {
     this.content = content;
+  }
+
+  public String getSenderIp() { return senderIp; }
+  public void setSenderIp(String value) { senderIp = value; }
+  public String getAttachmentName() { return attachmentName; }
+  public void setAttachmentName(String value) { attachmentName = value; }
+  public String getAttachmentType() { return attachmentType; }
+  public void setAttachmentType(String value) { attachmentType = value; }
+  public String getAttachmentData() { return attachmentData; }
+  public void setAttachmentData(String value) { attachmentData = value; }
+  public long getAttachmentSize() { return attachmentSize; }
+  public void setAttachmentSize(long value) { attachmentSize = value; }
+
+  public boolean hasAttachment() {
+    return attachmentName != null && !attachmentName.isBlank()
+        && attachmentData != null && !attachmentData.isBlank();
   }
 }

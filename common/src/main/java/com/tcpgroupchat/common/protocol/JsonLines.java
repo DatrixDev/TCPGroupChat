@@ -5,7 +5,8 @@ import java.io.IOException;
 
 /** Limits each TCP frame while retaining support for partial/coalesced socket reads. */
 public final class JsonLines {
-  public static final int MAX_FRAME = 32_768;
+  /** 8 MB attachments expand to about 10.7 MB when Base64 encoded. */
+  public static final int MAX_FRAME = 12 * 1024 * 1024;
 
   private JsonLines() {}
 

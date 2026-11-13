@@ -6,9 +6,13 @@ import com.tcpgroupchat.common.ui.UiStyles;
 import java.awt.*;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 public final class ChatFrame extends JFrame {
   private record Pending(ChatMessage message, long time) {}
@@ -30,6 +34,10 @@ public final class ChatFrame extends JFrame {
   private final JButton join = UiStyles.button("Join", "log-in", true),
       leave = UiStyles.button("Leave", "log-out", false),
       send = UiStyles.button("Gửi", "send", true),
+      emoji = new JButton("😊"),
+      attachFile = new JButton("📎 File"),
+      attachAudio = new JButton("🎵 Audio"),
+      attachVideo = new JButton("🎬 Video"),
       applyGroup = UiStyles.button("Xem nhóm", "hash", false),
       refresh = UiStyles.button("Làm mới", "refresh-cw", false);
   private final Map<String, Pending> pending = new HashMap<>();
@@ -264,8 +272,20 @@ public final class ChatFrame extends JFrame {
     input.putClientProperty("JTextField.placeholderText", "Nhập tin nhắn…");
     input.addActionListener(e -> sendText());
     send.addActionListener(e -> sendText());
+    emoji.setToolTipText("Chọn biểu cảm");
+    emoji.addActionListener(e -> showEmojiPicker());
     message.add(input, BorderLayout.CENTER);
     message.add(send, BorderLayout.EAST);
+    JPanel media = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+    media.setOpaque(false);
+    for (JButton button : new JButton[] {emoji, attachFile, attachAudio, attachVideo}) {
+      button.setFocusable(false);
+      media.add(button);
+    }
+    attachFile.addActionListener(e -> chooseAttachment("file"));
+    attachAudio.addActionListener(e -> chooseAttachment("audio"));
+    attachVideo.addActionListener(e -> chooseAttachment("video"));
+    compose.add(media, BorderLayout.NORTH);
     compose.add(message, BorderLayout.CENTER);
     chat.add(compose, BorderLayout.SOUTH);
     String[] names = {"Unicast", "Group", "Broadcast"};
@@ -441,6 +461,10 @@ public final class ChatFrame extends JFrame {
     boolean canSend = !connection.isClosed() && (!groupMode || (!activeGroup.isEmpty() && joined));
     input.setEnabled(canSend);
     send.setEnabled(canSend);
+    emoji.setEnabled(canSend);
+    attachFile.setEnabled(canSend);
+    attachAudio.setEnabled(canSend);
+    attachVideo.setEnabled(canSend);
     if (hasLeft) groupStatus = "Đã rời nhóm · Chỉ xem tin cũ, không thể gửi tin.";
     if (activeGroup.isEmpty()) groupStatus = "Chọn nhóm trong danh sách hoặc bấm Tạo nhóm.";
     join.setVisible(groupMode && !activeGroup.isEmpty() && !joined);
@@ -489,35 +513,102 @@ public final class ChatFrame extends JFrame {
       JOptionPane.showMessageDialog(this, "Tin nhắn tối đa 4000 ký tự.");
       return;
     }
+    ChatMessage message = outgoing(text);
+    if (message == null) return;
+    transmit(message);
+    input.setText("");
+    input.requestFocusInWindow();
+  }
+
+  private ChatMessage outgoing(String text) {
     String type =
         switch (mode.getSelectedIndex()) {
           case 0 -> "UNICAST";
           case 1 -> "GROUP_MESSAGE";
           default -> "BROADCAST";
         };
-    ChatMessage message = ChatMessage.of(type, connection.username, text);
+    ChatMessage message = ChatMessage.of(type, connection.username, text == null ? "" : text);
     if (mode.getSelectedIndex() == 0) {
       String user = recipient.getText().trim().toLowerCase(Locale.ROOT);
       if (!user.matches("[a-z0-9_-]{2,20}")) {
         JOptionPane.showMessageDialog(this, "Chọn client online hoặc nhập tên người nhận hợp lệ.");
-        return;
+        return null;
       }
       if (user.equals(connection.username)) {
         JOptionPane.showMessageDialog(this, "Hãy chọn một người khác để gửi tin riêng.");
-        return;
+        return null;
       }
       message.setRecipient(user);
     }
     if (mode.getSelectedIndex() == 1) {
       if (activeGroup.isEmpty() || !knownGroups.contains(activeGroup)) {
         JOptionPane.showMessageDialog(this, "Hãy chọn nhóm bạn đang tham gia hoặc tạo nhóm mới.");
-        return;
+        return null;
       }
       message.setGroup(activeGroup);
     }
-    transmit(message);
-    input.setText("");
-    input.requestFocusInWindow();
+    return message;
+  }
+
+  private void showEmojiPicker() {
+    JPopupMenu picker = new JPopupMenu();
+    JPanel grid = new JPanel(new GridLayout(4, 6, 4, 4));
+    for (String value : new String[] {
+        "😀", "😂", "😍", "🥰", "😎", "🤔", "😊", "😉", "😢", "😭", "😡", "😱",
+        "👍", "👎", "👏", "🙏", "💪", "🤝", "❤️", "🔥", "🎉", "✅", "⭐", "💯"}) {
+      JButton choice = new JButton(value);
+      choice.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 22));
+      choice.addActionListener(event -> {
+        input.setText(input.getText() + value);
+        picker.setVisible(false);
+        input.requestFocusInWindow();
+      });
+      grid.add(choice);
+    }
+    picker.add(grid);
+    picker.show(emoji, 0, -picker.getPreferredSize().height);
+  }
+
+  private void chooseAttachment(String category) {
+    if (connection.isClosed()) return;
+    JFileChooser chooser = new JFileChooser();
+    chooser.setDialogTitle(switch (category) {
+      case "audio" -> "Chọn tệp âm thanh";
+      case "video" -> "Chọn tệp video";
+      default -> "Chọn tệp đính kèm";
+    });
+    if ("audio".equals(category))
+      chooser.setFileFilter(new FileNameExtensionFilter("Audio (mp3, wav, m4a, ogg)", "mp3", "wav", "m4a", "ogg"));
+    if ("video".equals(category))
+      chooser.setFileFilter(new FileNameExtensionFilter("Video (mp4, webm, avi, mov, mkv)", "mp4", "webm", "avi", "mov", "mkv"));
+    if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+    Path path = chooser.getSelectedFile().toPath();
+    try {
+      long size = Files.size(path);
+      if (size < 1 || size > 8L * 1024 * 1024) {
+        JOptionPane.showMessageDialog(this, "Tệp phải có kích thước từ 1 byte đến 8 MB.");
+        return;
+      }
+      String mime = Objects.toString(Files.probeContentType(path), "application/octet-stream");
+      String extension = path.getFileName().toString().toLowerCase(Locale.ROOT);
+      boolean validAudio = mime.startsWith("audio/") || extension.matches(".*\\.(mp3|wav|m4a|ogg)$");
+      boolean validVideo = mime.startsWith("video/") || extension.matches(".*\\.(mp4|webm|avi|mov|mkv)$");
+      if (("audio".equals(category) && !validAudio) || ("video".equals(category) && !validVideo)) {
+        JOptionPane.showMessageDialog(this, "Tệp đã chọn không đúng định dạng " + category + ".");
+        return;
+      }
+      ChatMessage message = outgoing(input.getText().trim());
+      if (message == null) return;
+      message.setAttachmentName(path.getFileName().toString());
+      message.setAttachmentType(mime);
+      message.setAttachmentSize(size);
+      message.setAttachmentData(Base64.getEncoder().encodeToString(Files.readAllBytes(path)));
+      transmit(message);
+      input.setText("");
+    } catch (IOException error) {
+      JOptionPane.showMessageDialog(this, "Không thể đọc tệp: " + error.getMessage(),
+          "Lỗi đính kèm", JOptionPane.ERROR_MESSAGE);
+    }
   }
 
   private void request(String type, String group) {
@@ -639,14 +730,17 @@ public final class ChatFrame extends JFrame {
         Pending sent = pending.remove(id);
         if (sent != null && remember(sent.message())) {
           ChatMessage own = sent.message();
-          appendTo(conversationKey(own), "ĐÃ GỬI " + label(own), "Bạn: " + own.getContent());
+          own.setSenderIp(connection.localIp);
+          appendMessage(conversationKey(own), "ĐÃ GỬI " + label(own), "Bạn: " + own.getContent(), own);
         }
         log("ACK", message.getContent());
       }
       case "UNICAST", "GROUP_MESSAGE", "BROADCAST" -> {
         if ("GROUP_MESSAGE".equals(message.getType()) && leftGroups.contains(message.getGroup())) return;
         if (!remember(message)) return;
-        appendTo(conversationKey(message), label(message), message.getSender() + ": " + message.getContent());
+        String ip = message.getSenderIp() == null ? "" : " · IP " + message.getSenderIp();
+        appendMessage(conversationKey(message), label(message) + ip,
+            message.getSender() + ": " + message.getContent(), message);
         log(
             "RECEIVE",
             message.getType() + " từ " + message.getSender() + " | " + message.getTimestamp());
@@ -679,6 +773,10 @@ public final class ChatFrame extends JFrame {
         new JComponent[] {
           input, send, mode, recipient, join, leave, applyGroup, refresh, groupName
         }) c.setEnabled(false);
+    emoji.setEnabled(false);
+    attachFile.setEnabled(false);
+    attachAudio.setEnabled(false);
+    attachVideo.setEnabled(false);
     users.clear();
     members.clear();
     pending.clear();
@@ -715,11 +813,19 @@ public final class ChatFrame extends JFrame {
     append(conversation, label, text, key);
   }
 
+  private void appendMessage(String key, String label, String text, ChatMessage message) {
+    append(conversation, label, text, key, message);
+  }
+
   private void append(JTextArea area, String label, String text) {
     append(area, label, text, activeConversation);
   }
 
   private void append(JTextArea area, String label, String text, String key) {
+    append(area, label, text, key, null);
+  }
+
+  private void append(JTextArea area, String label, String text, String key, ChatMessage message) {
     if (area == conversation) {
       boolean own = text.startsWith(connection.username + ": ") || text.startsWith("Bạn: ");
       boolean system = label.startsWith("HỆ THỐNG") || label.equals("LỖI");
@@ -743,6 +849,8 @@ public final class ChatFrame extends JFrame {
       body.setPreferredSize(new Dimension(width, body.getPreferredSize().height));
       bubble.add(meta, BorderLayout.NORTH);
       bubble.add(body, BorderLayout.CENTER);
+      if (message != null && message.hasAttachment())
+        bubble.add(attachmentPanel(message, own), BorderLayout.SOUTH);
       row.add(bubble);
       row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
       java.util.List<JPanel> history = histories.computeIfAbsent(key, ignored -> new ArrayList<>());
@@ -771,5 +879,58 @@ public final class ChatFrame extends JFrame {
       } catch (javax.swing.text.BadLocationException ignored) {
       }
     area.setCaretPosition(area.getDocument().getLength());
+  }
+
+  private JPanel attachmentPanel(ChatMessage message, boolean own) {
+    JPanel panel = new JPanel(new BorderLayout(8, 6));
+    panel.setOpaque(false);
+    String kind = message.getAttachmentType().startsWith("audio/") ? "🎵"
+        : message.getAttachmentType().startsWith("video/") ? "🎬" : "📎";
+    JLabel details = new JLabel(kind + " " + message.getAttachmentName() + " · " + readableSize(message.getAttachmentSize()));
+    details.setForeground(own ? Color.WHITE : UiStyles.NAVY);
+    panel.add(details, BorderLayout.NORTH);
+    JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+    actions.setOpaque(false);
+    JButton save = new JButton("Lưu xuống");
+    save.addActionListener(event -> saveAttachment(message, false));
+    actions.add(save);
+    if (Desktop.isDesktopSupported()) {
+      JButton open = new JButton(message.getAttachmentType().startsWith("audio/") ? "Phát audio"
+          : message.getAttachmentType().startsWith("video/") ? "Mở video" : "Mở tệp");
+      open.addActionListener(event -> saveAttachment(message, true));
+      actions.add(open);
+    }
+    panel.add(actions, BorderLayout.SOUTH);
+    return panel;
+  }
+
+  private void saveAttachment(ChatMessage message, boolean open) {
+    try {
+      byte[] data = Base64.getDecoder().decode(message.getAttachmentData());
+      String safeName = Path.of(message.getAttachmentName()).getFileName().toString();
+      Path target;
+      if (open) {
+        String suffix = safeName.contains(".") ? safeName.substring(safeName.lastIndexOf('.')) : ".bin";
+        target = Files.createTempFile("tcpgroupchat-", suffix);
+        target.toFile().deleteOnExit();
+      } else {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new java.io.File(safeName));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        target = chooser.getSelectedFile().toPath();
+      }
+      Files.write(target, data);
+      if (open) Desktop.getDesktop().open(target.toFile());
+      else JOptionPane.showMessageDialog(this, "Đã lưu tệp tại:\n" + target.toAbsolutePath());
+    } catch (IOException | IllegalArgumentException error) {
+      JOptionPane.showMessageDialog(this, "Không thể xử lý tệp: " + error.getMessage(),
+          "Lỗi tệp đính kèm", JOptionPane.ERROR_MESSAGE);
+    }
+  }
+
+  private static String readableSize(long bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
+    return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
   }
 }

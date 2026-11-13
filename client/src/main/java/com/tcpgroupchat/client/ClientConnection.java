@@ -113,27 +113,30 @@ public final class ClientConnection implements AutoCloseable {
     receiver.setDaemon(true);
     receiver.start();
   }
+    public void send(ChatMessage message) {
+        if (closed.get()) return;
 
-  public void send(ChatMessage message) {
-    if (closed.get()) return;
-    try {
-      sender.execute(
-          () -> {
-            try {
-              writer.write(mapper.writeValueAsString(message));
-              writer.newLine();
-              writer.flush();
-            } catch (IOException e) {
-              boolean notify = !closed.get();
-              close();
-              if (notify && disconnected != null) disconnected.accept("Lỗi gửi: " + e.getMessage());
-            }
-          });
-    } catch (RejectedExecutionException ignored) {
-      /* connection already closed */
+        try {
+            sender.execute(() -> {
+                try {
+                    writer.write(mapper.writeValueAsString(message));
+                    writer.newLine();
+                    writer.flush();
+                } catch (IOException e) {
+                    boolean notify = !closed.get();
+                    close();
+
+                    if (notify && disconnected != null) {
+                        disconnected.accept(
+                                "Lỗi gửi: " + e.getMessage()
+                        );
+                    }
+                }
+            });
+        } catch (RejectedExecutionException ignored) {
+            /* connection already closed */
+        }
     }
-  }
-
   public boolean isClosed() {
     return closed.get();
   }

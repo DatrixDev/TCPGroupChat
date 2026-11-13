@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tcpgroupchat.common.protocol.ChatMessage;
+import com.tcpgroupchat.common.protocol.JsonLines;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
@@ -113,6 +114,23 @@ class ChatServerTest {
     for (Peer peer : p) assertEquals("all", peer.next("BROADCAST").getContent());
     assertEquals(1, server.getStats().unicast());
     assertEquals(1, server.getStats().broadcast());
+  }
+
+  @Test
+  void attachmentUsesTcpAndIncludesSenderIp() throws Exception {
+    Peer sender = client("sender"), receiver = client("receiver");
+    ChatMessage file = new ChatMessage("UNICAST", sender.name, receiver.name, null, "Tài liệu");
+    byte[] bytes = "hello-file".getBytes(StandardCharsets.UTF_8);
+    file.setAttachmentName("demo.txt");
+    file.setAttachmentType("text/plain");
+    file.setAttachmentSize(bytes.length);
+    file.setAttachmentData(Base64.getEncoder().encodeToString(bytes));
+    sender.send(file);
+    sender.next("ACK");
+    ChatMessage received = receiver.next("UNICAST");
+    assertEquals("demo.txt", received.getAttachmentName());
+    assertArrayEquals(bytes, Base64.getDecoder().decode(received.getAttachmentData()));
+    assertNotNull(received.getSenderIp());
   }
 
   @Test
@@ -241,7 +259,7 @@ class ChatServerTest {
     assertEquals("second", b.next("BROADCAST").getContent());
     a.next("ACK");
     a.next("ACK");
-    a.raw("x".repeat(33000));
+    a.raw("x".repeat(JsonLines.MAX_FRAME + 1));
     a.assertEof();
     await(() -> server.getOnlineUsers().size() == 1);
   }
